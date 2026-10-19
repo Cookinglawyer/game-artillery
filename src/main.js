@@ -383,14 +383,84 @@ $('menu').addEventListener('click', e => {
 try {
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('./sw.js').catch(() => {});
 } catch (e) { /* 샌드박스 iframe 등 */ }
+// 설치 버튼: 브라우저가 설치 창을 띄워 줄 수 있으면 바로 띄우고(안드로이드 크롬 등),
+// 아니면 지금 환경(아이폰, 카카오톡 같은 앱 안 브라우저 등)에 맞는 설치 방법을 보여준다.
+const ua = navigator.userAgent;
+const env = {
+  standalone: matchMedia('(display-mode: standalone)').matches || navigator.standalone === true,
+  embedded: (() => { try { return window.top !== window; } catch (e) { return true; } })(),
+  ios: /iPhone|iPad|iPod/i.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1),
+  android: /Android/i.test(ua),
+  kakao: /KAKAOTALK/i.test(ua),
+  inApp: /KAKAOTALK|NAVER\(inapp|Instagram|FBAN|FBAV|Line\/|DaumApps|everytimeApp|; wv\)/i.test(ua),
+};
 let installPrompt = null;
-addEventListener('beforeinstallprompt', e => { e.preventDefault(); installPrompt = e; $('install').hidden = false; });
-addEventListener('appinstalled', () => { installPrompt = null; $('install').hidden = true; });
+const showInstall = () => { $('install').hidden = env.standalone || env.embedded || !(installPrompt || env.ios || env.android || env.inApp); };
+addEventListener('beforeinstallprompt', e => { e.preventDefault(); installPrompt = e; showInstall(); });
+addEventListener('appinstalled', () => { installPrompt = null; $('install').hidden = true; closeGuide(); });
+showInstall();
+
+function installSteps() {
+  if (env.inApp) {
+    return {
+      title: env.kakao ? '카카오톡 안에서는 설치할 수 없어요' : '앱 안의 브라우저에서는 설치할 수 없어요',
+      steps: [
+        env.kakao ? '아래 <b>기본 브라우저로 열기</b>를 누르거나, 화면 오른쪽 아래(또는 위) <b>⋮</b> 메뉴에서 <b>다른 브라우저로 열기</b>를 고르세요.'
+                  : '화면 위 <b>⋮</b> 또는 공유 메뉴에서 <b>다른 브라우저로 열기</b>(Safari·Chrome)를 고르세요.',
+        env.ios ? 'Safari에서 열리면 공유 버튼 → <b>홈 화면에 추가</b>.' : 'Chrome에서 열리면 다시 <b>앱 설치</b> 버튼을 누르세요.',
+      ],
+      external: env.kakao,
+    };
+  }
+  if (env.ios) {
+    return {
+      title: '아이폰에 설치하기',
+      steps: [
+        '화면 아래(또는 위)의 <b>공유 버튼</b>(네모에서 화살표가 나가는 모양)을 누르세요.',
+        '목록을 내려 <b>홈 화면에 추가</b> → <b>추가</b>.',
+        '홈 화면의 <b>포격전</b> 아이콘으로 실행하면 앱처럼 전체 화면으로 열리고, 인터넷 없이도 실행됩니다.',
+      ],
+    };
+  }
+  return {
+    title: '안드로이드에 설치하기',
+    steps: [
+      'Chrome 오른쪽 위 <b>⋮</b> 메뉴를 누르세요.',
+      '<b>앱 설치</b> 또는 <b>홈 화면에 추가</b> → <b>설치</b>.',
+      '메뉴에 설치 항목이 없으면 페이지를 한 번 새로고침한 뒤 다시 보세요. 삼성 인터넷은 주소창 옆 <b>⬇︎ 설치</b> 아이콘을 누르면 됩니다.',
+    ],
+  };
+}
+function openGuide() {
+  const g = installSteps();
+  $('guideTitle').textContent = g.title;
+  $('guideSteps').innerHTML = g.steps.map(t => `<li>${t}</li>`).join('');
+  $('guideExternal').hidden = !g.external;
+  $('guideUrl').textContent = location.href.split('#')[0];
+  $('installGuide').hidden = false;
+  $('guideClose').focus();
+}
+function closeGuide() { $('installGuide').hidden = true; }
 $('install').addEventListener('click', async () => {
-  if (!installPrompt) return;
-  installPrompt.prompt();
-  try { await installPrompt.userChoice; } catch (e) { /* 무시 */ }
-  installPrompt = null; $('install').hidden = true;
+  if (installPrompt) {
+    installPrompt.prompt();
+    try { await installPrompt.userChoice; } catch (e) { /* 무시 */ }
+    installPrompt = null; showInstall();
+    return;
+  }
+  openGuide();
+});
+$('guideClose').addEventListener('click', closeGuide);
+$('installGuide').addEventListener('click', e => { if (e.target === e.currentTarget) closeGuide(); });
+addEventListener('keydown', e => { if (e.key === 'Escape' && !$('installGuide').hidden) closeGuide(); });
+$('guideExternal').addEventListener('click', () => {
+  location.href = 'kakaotalk://web/openExternal?url=' + encodeURIComponent(location.href.split('#')[0]);
+});
+$('guideCopy').addEventListener('click', async e => {
+  const btn = e.currentTarget, url = $('guideUrl').textContent;
+  try { await navigator.clipboard.writeText(url); btn.textContent = '복사했습니다'; }
+  catch (err) { getSelection().selectAllChildren($('guideUrl')); btn.textContent = '주소를 길게 눌러 복사하세요'; }
+  setTimeout(() => { btn.textContent = '주소 복사'; }, 2500);
 });
 
 /* ---------- 루프 ---------- */

@@ -135,6 +135,14 @@ canvas#game{display:block;width:100%;height:auto;aspect-ratio:16/9;max-width:100
 .rrow select,.rrow input{padding:6px 8px;font-size:13px}
 .dot{display:inline-block;width:12px;height:12px;border-radius:3px;flex:none;vertical-align:-1px;margin-right:6px}
 .rrow .dot{margin:0}
+.rrow.off .dot{opacity:.3}
+.rrow.off input,.rrow.off select:not([data-f="ctrl"]){opacity:.4}
+.rrow.off select[data-f="ctrl"]{color:var(--dusk)}
+.headcount{font-size:13px;color:var(--sand)}
+.headcount b{font-size:16px;color:var(--ember)}
+.warn{color:var(--ember)}
+.warn:empty{display:none}
+.fire:disabled{opacity:.4}
 .tank-guide{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
 @media (max-width:760px){.tank-guide{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .tank-guide .tcard{--pc:var(--ember);cursor:default}
@@ -165,6 +173,16 @@ canvas#game{display:block;width:100%;height:auto;aspect-ratio:16/9;max-width:100
 #resultCard h3{align-self:flex-start}
 #resultCard .table-wrap{align-self:stretch}
 #resultCard .earn{width:100%}
+
+/* 각도·파워 직접 입력 */
+.valbox{flex:1;display:flex;align-items:baseline;justify-content:center;gap:2px;min-width:0}
+.valbox span{font-family:var(--mono);font-size:16px;color:var(--dusk)}
+input.num{background:transparent;border:1px solid transparent;border-radius:6px;padding:2px 4px;color:var(--sand);-moz-appearance:textfield;appearance:textfield}
+input.num::-webkit-inner-spin-button,input.num::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+input.num:hover{border-color:var(--edge)}
+input.num:focus{border-color:var(--ember);background:var(--night)}
+#angVal{width:calc(5ch + 14px);text-align:center;font-size:18px;font-weight:700;flex:none}
+#powVal{width:calc(4ch + 14px);text-align:right;font-size:13px}
 @media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
 </style>
 
@@ -186,13 +204,14 @@ canvas#game{display:block;width:100%;height:auto;aspect-ratio:16/9;max-width:100
     <section class="panel">
       <div class="setup-top">
         <h3>참가자</h3>
-        <label class="k" for="count">인원</label><select id="count"></select>
+        <span class="headcount" id="headcount" aria-live="polite"></span>
         <label class="k" for="rounds">라운드</label>
         <select id="rounds">
           <option value="1">1라운드</option>
           <option value="3" selected>3라운드</option>
           <option value="5">5라운드</option>
         </select>
+        <button type="button" id="allCpu">빈자리 컴퓨터로</button>
         <button type="button" id="shuffleTanks">탱크 무작위로</button>
       </div>
       <div class="roster" id="roster"></div>
@@ -205,6 +224,7 @@ canvas#game{display:block;width:100%;height:auto;aspect-ratio:16/9;max-width:100
       <p class="hint">모두 한 전장에서 동시에 시작해 차례대로 쏩니다. 마지막까지 살아남으면 라운드 승리. 시작 자금 400G, 라운드가 끝나면 준 피해와 격파, 순위에 따라 골드를 받습니다.</p>
       <button type="button" class="fire" id="start">상점으로</button>
     </div>
+    <p class="hint warn" id="startNote" aria-live="polite"></p>
   </main>
 
   <main id="scrShop" class="screen" hidden>
@@ -261,8 +281,8 @@ canvas#game{display:block;width:100%;height:auto;aspect-ratio:16/9;max-width:100
         <div class="chips" id="items" aria-label="아이템"></div>
       </section>
       <section class="cell">
-        <div class="row"><span class="k w">각도</span><button type="button" data-hold="angL" aria-label="포신 왼쪽으로">◀</button><span class="num big" id="angVal"></span><button type="button" data-hold="angR" aria-label="포신 오른쪽으로">▶</button></div>
-        <div class="row"><span class="k w">파워</span><button type="button" data-hold="powD" aria-label="파워 낮추기">−</button><div class="bar"><i id="powBar"></i></div><span class="num" id="powVal"></span><button type="button" data-hold="powU" aria-label="파워 높이기">+</button></div>
+        <div class="row"><span class="k w">각도</span><button type="button" data-hold="angL" aria-label="포신 왼쪽으로">◀</button><label class="valbox"><input type="number" id="angVal" class="num big" min="0" max="180" step="0.1" inputmode="decimal" aria-label="각도"><span aria-hidden="true">°</span></label><button type="button" data-hold="angR" aria-label="포신 오른쪽으로">▶</button></div>
+        <div class="row"><span class="k w">파워</span><button type="button" data-hold="powD" aria-label="파워 낮추기">−</button><div class="bar"><i id="powBar"></i></div><input type="number" id="powVal" class="num" min="5" max="100" step="0.1" inputmode="decimal" aria-label="파워"><button type="button" data-hold="powU" aria-label="파워 높이기">+</button></div>
       </section>
       <section class="cell">
         <div class="chips" id="weapons" aria-label="무기"></div>
@@ -271,7 +291,7 @@ canvas#game{display:block;width:100%;height:auto;aspect-ratio:16/9;max-width:100
       <button type="button" id="fire" class="fire">발사</button>
     </div>
     <p class="keys">
-      <kbd>←</kbd><kbd>→</kbd> 각도 · <kbd>↑</kbd><kbd>↓</kbd> 파워 · <kbd>A</kbd><kbd>D</kbd> 이동 · <kbd>1</kbd>–<kbd>9</kbd> 또는 <kbd>Q</kbd><kbd>E</kbd> 무기 · <kbd>Space</kbd> 발사 · <kbd>Shift</kbd> 누르고 조정하면 미세하게. 전장을 끌거나 미니맵·참가자 이름을 눌러 둘러볼 수 있습니다. 점선 테두리는 특기, 초록 테두리는 조합 무기입니다.
+      <kbd>←</kbd><kbd>→</kbd> 각도 · <kbd>↑</kbd><kbd>↓</kbd> 파워 · <kbd>A</kbd><kbd>D</kbd> 이동 · <kbd>1</kbd>–<kbd>9</kbd> 또는 <kbd>Q</kbd><kbd>E</kbd> 무기 · <kbd>Space</kbd> 발사 · 누르면 1씩, 길게 누르면 연속으로 바뀌고, <kbd>Shift</kbd>를 함께 누르면 0.1씩 바뀝니다. 숫자를 눌러 직접 입력할 수도 있습니다. 전장을 끌거나 미니맵·참가자 이름을 눌러 둘러볼 수 있습니다. 점선 테두리는 특기, 초록 테두리는 조합 무기입니다.
     </p>
   </main>
 

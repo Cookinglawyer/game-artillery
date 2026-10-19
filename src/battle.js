@@ -16,7 +16,7 @@ export class Battle {
     this.tanks = shuffle(players.map((pl, i) => this.makeTank(pl, slots[i])));
     this.projs = []; this.spawned = []; this.booms = []; this.parts = []; this.floaters = []; this.deaths = [];
     this.deathOrder = [];
-    this.held = new Set(); this.fine = false;
+    this.held = new Map(); this.fine = false;
     this.wind = rand(-.5, .5) * MAX_WIND;
     this.state = 'aim'; this.settleT = 0; this.shake = 0; this.now = 0;
     this.cam = { x: 0, manual: false }; this.lastBoom = null;
@@ -264,19 +264,33 @@ export class Battle {
   }
 
   /* ---------- 조작 ---------- */
-  nudge(act) {
-    const t = this.human(); if (!t) return;
-    if (act === 'angL') t.angle = Math.min(180, Math.round(t.angle) + 1);
-    if (act === 'angR') t.angle = Math.max(0, Math.round(t.angle) - 1);
-    if (act === 'powU') t.power = Math.min(100, Math.round(t.power) + 1);
-    if (act === 'powD') t.power = Math.max(5, Math.round(t.power) - 1);
+  // 각도·파워는 0.1 단위로 맞춘다. 한 칸 = 1(Shift를 누르고 있으면 0.1).
+  setAngle(t, v) { t.angle = clamp(Math.round(v * 10) / 10, 0, 180); }
+  setPower(t, v) { t.power = clamp(Math.round(v * 10) / 10, 5, 100); }
+  step(t, act) {
+    const s = this.fine ? .1 : 1;
+    if (act === 'angL') this.setAngle(t, t.angle + s);
+    if (act === 'angR') this.setAngle(t, t.angle - s);
+    if (act === 'powU') this.setPower(t, t.power + s);
+    if (act === 'powD') this.setPower(t, t.power - s);
   }
+  // 누르는 순간 정확히 한 칸. held에는 누른 시간을 기록해 두고 humanUpdate에서 길게 누를 때만 반복한다.
+  press(act) {
+    if (this.held.has(act)) return;
+    this.held.set(act, { t: 0, acc: 0 });
+    const t = this.human();
+    if (t) this.step(t, act);
+  }
+  release(act) { this.held.delete(act); }
   humanUpdate(t, dt) {
-    const k = this.fine ? .25 : 1, held = this.held;
-    if (held.has('angL')) t.angle = Math.min(180, t.angle + 45 * k * dt);
-    if (held.has('angR')) t.angle = Math.max(0, t.angle - 45 * k * dt);
-    if (held.has('powU')) t.power = Math.min(100, t.power + 35 * k * dt);
-    if (held.has('powD')) t.power = Math.max(5, t.power - 35 * k * dt);
+    const held = this.held;
+    for (const [act, h] of held) {
+      if (act === 'movL' || act === 'movR') continue;
+      h.t += dt;
+      if (h.t < .4) continue;                 // 0.4초 넘게 누르고 있어야 반복 시작
+      h.acc += (h.t < 1.5 ? 10 : 30) * dt;    // 초당 10칸, 1.5초가 지나면 초당 30칸
+      while (h.acc >= 1) { h.acc--; this.step(t, act); }
+    }
     const dir = (held.has('movR') ? 1 : 0) - (held.has('movL') ? 1 : 0);
     if (dir) {
       this.cam.manual = false;

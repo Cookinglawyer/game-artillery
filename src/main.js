@@ -1,4 +1,4 @@
-import { ECON, VIEW, PLAYER_COLORS, PLAYER_NAMES, MAX_PLAYERS, MAX_LEVEL, COMBO_FEE } from './config.js';
+import { ECON, VIEW, PLAYER_COLORS, PLAYER_NAMES, MAX_LEVEL, COMBO_FEE } from './config.js';
 import { WEAPONS, BASE_ORDER, weaponStats, upgradeCost, upgradeNote, statBits, comboId, isCombo } from './data/weapons.js';
 import { TANKS, TANK_ORDER } from './data/tanks.js';
 import { ITEMS, ITEM_ORDER } from './data/items.js';
@@ -10,7 +10,8 @@ import { ensureAudio, toggleSound, sfx } from './audio.js';
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"']/g, ch => `&#${ch.charCodeAt(0)};`);
 const cv = $('game'), ctx = cv.getContext('2d');
-const CTRL = [['0', '사람'], ['1', 'CPU · 쉬움'], ['2', 'CPU · 보통'], ['3', 'CPU · 어려움']];
+const OFF = 'off';
+const CTRL = [['0', '사람'], ['1', '컴퓨터 · 쉬움'], ['2', '컴퓨터 · 보통'], ['3', '컴퓨터 · 어려움'], [OFF, '불참']];
 const randomTank = () => TANK_ORDER[Math.floor(Math.random() * TANK_ORDER.length)];
 
 const setup = PLAYER_NAMES.map((name, i) => ({ name, ctrl: i === 0 ? '0' : '2', tank: i === 0 ? 'cannon' : randomTank() }));
@@ -30,15 +31,27 @@ function updateScore() {
 const chip = pl => `<i class="dot" style="background:${pl.color}"></i>`;
 
 /* ---------- 설정 ---------- */
+// 10자리 각각 사람 / 컴퓨터(난이도) / 불참. 참가자가 2명 이상이어야 시작할 수 있다.
 function renderSetup() {
-  const n = +$('count').value;
   $('roster').innerHTML = setup.map((s, i) => `
-    <div class="rrow"${i >= n ? ' hidden' : ''}>
+    <div class="rrow" id="slot${i}">
       <i class="dot" style="background:${PLAYER_COLORS[i]}"></i>
       <input id="name${i}" data-i="${i}" data-f="name" maxlength="8" value="${esc(s.name)}" aria-label="${i + 1}번 이름">
-      <select id="ctrl${i}" data-i="${i}" data-f="ctrl" aria-label="${i + 1}번 조종">${CTRL.map(([v, l]) => `<option value="${v}"${v === s.ctrl ? ' selected' : ''}>${l}</option>`).join('')}</select>
+      <select id="ctrl${i}" data-i="${i}" data-f="ctrl" aria-label="${i + 1}번 참가 방식">${CTRL.map(([v, l]) => `<option value="${v}"${v === s.ctrl ? ' selected' : ''}>${l}</option>`).join('')}</select>
       <select id="tank${i}" data-i="${i}" data-f="tank" aria-label="${i + 1}번 탱크">${TANK_ORDER.map(id => `<option value="${id}"${id === s.tank ? ' selected' : ''}>${TANKS[id].name}</option>`).join('')}</select>
     </div>`).join('');
+  updateRoster();
+}
+function updateRoster() {
+  setup.forEach((s, i) => {
+    const off = s.ctrl === OFF;
+    $('slot' + i).classList.toggle('off', off);
+    $('name' + i).disabled = $('tank' + i).disabled = off;
+  });
+  const on = setup.filter(s => s.ctrl !== OFF), humans = on.filter(s => s.ctrl === '0').length;
+  $('headcount').innerHTML = `참가 <b class="num">${on.length}</b>명 <span class="dim">· 사람 ${humans} · 컴퓨터 ${on.length - humans}</span>`;
+  $('start').disabled = on.length < 2;
+  $('startNote').textContent = on.length < 2 ? '참가자가 2명 이상이어야 시작할 수 있습니다. 불참으로 둔 자리를 사람이나 컴퓨터로 바꿔 주세요.' : '';
 }
 function renderTankGuide() {
   $('tankGuide').innerHTML = TANK_ORDER.map(id => {
@@ -57,14 +70,15 @@ function renderTankGuide() {
   });
 }
 $('roster').addEventListener('input', e => { const { i, f } = e.target.dataset; if (f) setup[+i][f] = e.target.value; });
-$('roster').addEventListener('change', e => { const { i, f } = e.target.dataset; if (f) setup[+i][f] = e.target.value; });
-$('count').addEventListener('change', renderSetup);
+$('roster').addEventListener('change', e => { const { i, f } = e.target.dataset; if (f) { setup[+i][f] = e.target.value; if (f === 'ctrl') updateRoster(); } });
+$('allCpu').addEventListener('click', () => { setup.forEach((s, i) => { if (i > 0 || s.ctrl === OFF) s.ctrl = '2'; }); renderSetup(); });
 $('shuffleTanks').addEventListener('click', () => { setup.forEach(s => { s.tank = randomTank(); }); renderSetup(); });
 $('start').addEventListener('click', () => {
   ensureAudio();
-  const n = +$('count').value;
-  game.players = setup.slice(0, n).map((s, i) => ({
-    id: i, name: s.name.trim() || PLAYER_NAMES[i], color: PLAYER_COLORS[i], tank: s.tank, cpu: +s.ctrl,
+  const slots = setup.map((s, i) => ({ ...s, slot: i })).filter(s => s.ctrl !== OFF);
+  if (slots.length < 2) return;
+  game.players = slots.map((s, i) => ({
+    id: i, name: s.name.trim() || PLAYER_NAMES[s.slot], color: PLAYER_COLORS[s.slot], tank: s.tank, cpu: +s.ctrl,
     money: ECON.start, wins: 0, totalDealt: 0, totalKills: 0,
     inventory: {}, upgrades: {}, recipes: [], items: { repair: 0, shield: 0, fuel: 0 },
   }));
@@ -238,7 +252,7 @@ function toSetup() { game.battle = null; renderSetup(); show('scrSetup'); }
 let hudKey = '';
 function hud(b) {
   const t = b.cur, h = b.human();
-  const key = [b.turn, b.state, Math.round(t.angle), Math.round(t.power), Math.round(t.fuel), t.hp, t.sel, t.cd, t.shield, t.itemUsed,
+  const key = [b.turn, b.state, t.angle.toFixed(1), t.power.toFixed(1), Math.round(t.fuel), t.hp, t.sel, t.cd, t.shield, t.itemUsed,
     JSON.stringify(t.pl.inventory), JSON.stringify(t.pl.items)].join('|');
   if (key === hudKey) return;
   hudKey = key;
@@ -246,8 +260,9 @@ function hud(b) {
   $('pName').textContent = t.pl.name;
   $('pType').textContent = `${t.type.name} · ${t.pl.cpu ? 'CPU' : '사람'}${t.shield ? ' · 방어막' : ''}`;
   $('hpVal').textContent = t.hp; $('hpBar').style.width = (t.hp / t.maxHp * 100) + '%';
-  $('angVal').textContent = Math.round(t.angle) + '°';
-  $('powVal').textContent = Math.round(t.power); $('powBar').style.width = t.power + '%';
+  if (document.activeElement !== $('angVal')) $('angVal').value = fmt(t.angle);
+  if (document.activeElement !== $('powVal')) $('powVal').value = fmt(t.power);
+  $('powBar').style.width = t.power + '%';
   $('fuelBar').style.width = (t.fuel / t.fuelMax * 100) + '%';
   $('weapons').innerHTML = b.available(t).map((a, i) => {
     const s = b.stats(t, a.id), lv = isCombo(a.id) ? 0 : s.level;
@@ -295,7 +310,7 @@ addEventListener('keydown', e => {
   ensureAudio();
   b.fine = e.shiftKey;
   const act = KEYMAP[e.code], t = b.human();
-  if (act) { e.preventDefault(); if (!b.held.has(act)) b.nudge(act); b.held.add(act); }
+  if (act) { e.preventDefault(); b.press(act); }
   else if (e.code === 'Space') { e.preventDefault(); if (!e.repeat && t) b.fire(t); }
   else if (t && e.code === 'KeyQ') b.cycle(t, -1);
   else if (t && e.code === 'KeyE') b.cycle(t, 1);
@@ -304,7 +319,7 @@ addEventListener('keydown', e => {
 addEventListener('keyup', e => {
   const b = inBattle(); if (!b) return;
   b.fine = e.shiftKey;
-  if (KEYMAP[e.code]) b.held.delete(KEYMAP[e.code]);
+  if (KEYMAP[e.code]) b.release(KEYMAP[e.code]);
   if (e.code === 'Space') e.preventDefault();
 });
 addEventListener('blur', () => game.battle?.held.clear());
@@ -312,9 +327,20 @@ document.querySelectorAll('[data-hold]').forEach(btn => {
   const act = btn.dataset.hold;
   btn.addEventListener('pointerdown', e => {
     const b = inBattle(); if (!b) return;
-    e.preventDefault(); ensureAudio(); b.nudge(act); b.held.add(act); btn.setPointerCapture?.(e.pointerId);
+    e.preventDefault(); ensureAudio(); b.fine = e.shiftKey; b.press(act); btn.setPointerCapture?.(e.pointerId);
   });
-  ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(ev => btn.addEventListener(ev, () => game.battle?.held.delete(act)));
+  ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(ev => btn.addEventListener(ev, () => game.battle?.release(act)));
+});
+// 각도·파워 숫자를 눌러 직접 입력
+const fmt = v => (Number.isInteger(v) ? String(v) : v.toFixed(1));
+[['angVal', 'setAngle'], ['powVal', 'setPower']].forEach(([id, fn]) => {
+  const el = $(id);
+  el.addEventListener('change', () => {
+    const b = inBattle(), t = b?.human(), v = parseFloat(el.value);
+    if (t && Number.isFinite(v)) b[fn](t, v);
+    hudKey = '';
+  });
+  el.addEventListener('keydown', e => { if (e.key === 'Enter') el.blur(); });
 });
 $('fire').addEventListener('click', () => { const b = inBattle(), t = b?.human(); if (t) { ensureAudio(); b.fire(t); } });
 
@@ -364,7 +390,6 @@ function frame(ts) {
   }
   requestAnimationFrame(frame);
 }
-$('count').innerHTML = Array.from({ length: MAX_PLAYERS - 1 }, (_, i) => i + 2).map(n => `<option value="${n}"${n === MAX_PLAYERS ? ' selected' : ''}>${n}명</option>`).join('');
 renderSetup(); renderTankGuide();
 show('scrSetup');
 requestAnimationFrame(frame);

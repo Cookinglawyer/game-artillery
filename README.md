@@ -11,6 +11,21 @@ python3 -m http.server 8000
 # http://localhost:8000
 ```
 
+## 휴대폰 앱으로 설치 (PWA)
+
+GitHub Pages 등 https 주소로 올리면 설치형 웹앱으로 동작한다.
+
+- 안드로이드 크롬: 화면 위 **앱 설치** 버튼, 또는 브라우저 메뉴 → **앱 설치 / 홈 화면에 추가**
+- 아이폰 사파리: 공유 버튼 → **홈 화면에 추가**
+- 한 번 연 뒤에는 인터넷 없이도 실행된다(`sw.js`). 온라인일 때는 항상 최신 파일을 먼저 받는다.
+- 새 파일을 추가하면 `sw.js`의 `SHELL` 목록에 넣고 `CACHE` 버전을 올린다.
+- 아이콘은 `icons/`, 앱 이름·색은 `manifest.webmanifest`.
+
+### GitHub Pages 켜기
+
+저장소 **Settings → Pages → Source: Deploy from a branch, Branch: main, / (root) → Save**.
+1~2분 뒤 `https://cookinglawyer.github.io/game-artillery/` 에서 열린다. `main`에 올릴 때마다 자동 갱신.
+
 ## 게임 흐름
 
 설정(인원 2~10, 각자 조종·탱크 선택) → 상점(사람 플레이어 차례대로, CPU는 자동) → 전투 → 라운드 순위·골드 정산 → 상점 → … → 정한 라운드 수(1/3/5)가 끝나면 최종 순위
@@ -45,7 +60,8 @@ python3 -m http.server 8000
 | `src/terrain.js` | 파괴 가능한 지형(픽셀 마스크 + 캔버스), 배경 |
 | `src/ai.js` | CPU 표적 선택·조준(탄도 시뮬레이션)과 CPU 상점(조합 포함) |
 | `src/render.js` | 전장 그리기, 미니맵, 탱크 실루엣 |
-| `src/main.js` | 화면 전환, 설정·상점·조합대 UI, HUD, 입력 |
+| `src/main.js` | 화면 전환, 설정·상점·조합대 UI, HUD, 입력, PWA 등록 |
+| `sw.js`, `manifest.webmanifest`, `icons/` | 오프라인 실행, 설치 정보, 앱 아이콘 |
 
 ## 무기 추가하기
 

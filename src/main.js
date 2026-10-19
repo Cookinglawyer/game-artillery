@@ -378,6 +378,21 @@ $('menu').addEventListener('click', e => {
   menuTimer = setTimeout(() => { delete btn.dataset.armed; btn.textContent = '처음으로'; }, 3000);
 });
 
+/* ---------- PWA ---------- */
+// 서비스 워커(오프라인 실행)와 설치 버튼. claude.ai 미리보기처럼 지원하지 않는 곳에서는 조용히 건너뛴다.
+try {
+  if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('./sw.js').catch(() => {});
+} catch (e) { /* 샌드박스 iframe 등 */ }
+let installPrompt = null;
+addEventListener('beforeinstallprompt', e => { e.preventDefault(); installPrompt = e; $('install').hidden = false; });
+addEventListener('appinstalled', () => { installPrompt = null; $('install').hidden = true; });
+$('install').addEventListener('click', async () => {
+  if (!installPrompt) return;
+  installPrompt.prompt();
+  try { await installPrompt.userChoice; } catch (e) { /* 무시 */ }
+  installPrompt = null; $('install').hidden = true;
+});
+
 /* ---------- 루프 ---------- */
 let last = performance.now();
 function frame(ts) {

@@ -1,7 +1,19 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
 <title>노을 포격전</title>
 <meta name="claude:viewport-fit-sides" content="cover">
-<meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="최대 10대가 한 전장에서 차례로 쏘는 포트리스식 포격 난타전">
+<meta name="theme-color" content="#120f22">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="포격전">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=Noto+Sans+KR:wght@400;700&family=JetBrains+Mono:wght@500;700&display=swap">
@@ -17,7 +29,7 @@
 }
 [hidden]{display:none!important}
 html,body{background:var(--night);color:var(--sand)}
-body{margin:0;font-family:var(--body);font-size:14px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 32px}
+body{margin:0;font-family:var(--body);font-size:14px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-top:max(20px,calc(env(safe-area-inset-top,0px) + 8px));padding-bottom:max(32px,calc(env(safe-area-inset-bottom,0px) + 16px))}
 .wrap{max-width:1000px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
 header{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px}
 h1{font-family:var(--display);font-weight:400;font-size:clamp(30px,5vw,42px);margin:0;line-height:1;letter-spacing:.01em}
@@ -143,6 +155,7 @@ canvas#game{display:block;width:100%;height:auto;aspect-ratio:16/9;max-width:100
 .warn{color:var(--ember)}
 .warn:empty{display:none}
 .fire:disabled{opacity:.4}
+.install{border-color:var(--ember);color:var(--ember)}
 .tank-guide{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
 @media (max-width:760px){.tank-guide{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .tank-guide .tcard{--pc:var(--ember);cursor:default}
@@ -184,7 +197,37 @@ input.num:focus{border-color:var(--ember);background:var(--night)}
 #angVal{width:calc(5ch + 14px);text-align:center;font-size:18px;font-weight:700;flex:none}
 #powVal{width:calc(4ch + 14px);text-align:right;font-size:13px}
 @media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
+
+/* 휴대폰 가로 화면: 전장은 왼쪽, 조작판은 오른쪽 세로 열로 — 스크롤 없이 한 화면에 */
+@media (orientation:landscape) and (max-height:520px){
+  body{padding-top:max(8px,env(safe-area-inset-top,0px));padding-bottom:max(8px,env(safe-area-inset-bottom,0px))}
+  .wrap{gap:8px;max-width:none}
+  header{align-items:center}
+  header .sub{display:none}
+  h1{font-size:20px}
+  .opts{gap:6px}
+  .opts button,.score{padding:4px 10px;font-size:12px}
+  #scrBattle{display:grid;grid-template-columns:minmax(0,1fr) minmax(200px,250px);grid-template-areas:"stage deck" "alive deck";gap:8px;align-items:start}
+  #scrBattle .stage{grid-area:stage;width:min(100%,calc((100dvh - 120px) * 16 / 9));justify-self:center}
+  #scrBattle .alive{grid-area:alive;grid-template-columns:repeat(5,minmax(0,1fr));gap:4px}
+  .pill{padding:2px 6px;font-size:11px;gap:1px 4px}
+  .pill .ph{height:3px}
+  #scrBattle .deck{grid-area:deck;grid-template-columns:minmax(0,1fr);gap:6px;max-height:calc(100dvh - 64px);overflow-y:auto}
+  .deck .cell{padding:6px 8px;gap:6px}
+  .who b{font-size:17px}
+  .row button{width:38px;padding:4px 0}
+  .deck .cell .chips button{padding:3px 7px}
+  #fire{min-height:46px;font-size:20px;position:sticky;bottom:0;box-shadow:0 -8px 12px var(--night)}
+}
+@media (pointer:coarse){.keys{display:none}}
+.rotate-hint{display:none;margin:0;font-size:12px;color:var(--dusk);text-align:center}
+@media (orientation:portrait) and (pointer:coarse){
+  .rotate-hint{display:block}
+  #fire{position:sticky;bottom:max(8px,env(safe-area-inset-bottom,0px));box-shadow:0 0 0 8px var(--night)}
+}
 </style>
+</head>
+<body>
 
 <div class="wrap">
   <header>
@@ -194,6 +237,7 @@ input.num:focus{border-color:var(--ember);background:var(--night)}
     </div>
     <div class="opts">
       <div class="score" id="score" hidden></div>
+      <button id="install" type="button" class="install" hidden>앱 설치</button>
       <button id="sound" type="button" aria-pressed="true">소리 켬</button>
       <button id="fast" type="button" aria-pressed="false">CPU 턴 보통 속도</button>
       <button id="menu" type="button" hidden>처음으로</button>
@@ -273,6 +317,7 @@ input.num:focus{border-color:var(--ember);background:var(--night)}
 
   <main id="scrBattle" class="screen" hidden>
     <div class="stage"><canvas id="game" width="960" height="540" aria-label="전장. 끌어서 둘러볼 수 있습니다"></canvas></div>
+    <p class="rotate-hint">휴대폰을 가로로 돌리면 전장을 크게 보면서 한 화면에서 조작할 수 있습니다.</p>
     <div class="alive" id="alive" aria-label="참가자 상태"></div>
     <div class="deck" id="deck">
       <section class="cell">
@@ -301,3 +346,5 @@ input.num:focus{border-color:var(--ember);background:var(--night)}
 </div>
 
 <script type="module" src="src/main.js"></script>
+</body>
+</html>

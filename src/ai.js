@@ -1,4 +1,4 @@
-import { W, H, G, SPEED, DEG, MAX_LEVEL, COMBO_FEE, rand, clamp } from './config.js';
+import { W, H, G, SPEED, DEG, BODY, MAX_LEVEL, COMBO_FEE, rand, clamp } from './config.js';
 import { WEAPONS, BASE_ORDER, weaponStats, upgradeCost, comboId } from './data/weapons.js';
 import { TANKS } from './data/tanks.js';
 import { ITEMS } from './data/items.js';
@@ -7,7 +7,7 @@ import { ITEMS } from './data/items.js';
 function simulate(b, t, a, pw, w, target) {
   const T = b.terrain, r = a * DEG, v = pw * SPEED * (w.speedK || 1), h = 1 / 120;
   const wk = w.windK ?? 1, gk = w.gravK ?? 1;
-  const onTarget = (x, y) => Math.abs(x - target.x) < 12 && y > target.y - 16 && y < target.y + 2;
+  const onTarget = (x, y) => Math.abs(x - target.x) < BODY.hw && y > target.y - BODY.h && y < target.y + 2;
   let [x, y] = b.tip(t, a), vx = Math.cos(r) * v, vy = -Math.sin(r) * v, bounces = w.bounces || 0;
   for (let i = 0; i < 1600; i++) {
     const px = x, py = y;

@@ -1,9 +1,13 @@
-import { W, VIEW, H, G, SPEED, MAX_WIND, DEG, rand, clamp, shuffle } from './config.js';
+import { W, VIEW, H, G, SPEED, MAX_WIND, DEG, BODY, rand, clamp, shuffle } from './config.js';
 import { Terrain } from './terrain.js';
 import { BASE_ORDER, weaponStats } from './data/weapons.js';
 import { TANKS } from './data/tanks.js';
 import { sfx } from './audio.js';
 import { plan } from './ai.js';
+
+// 조준 화살표: 길이 = base + 파워 × perPower (월드 단위). 렌더러와 같이 쓴다.
+export const ARROW = { base: 30, perPower: 1.15 };
+const EDGE = 110;
 
 // 한 라운드의 난타전. players는 라운드를 넘어 유지되는 플레이어 객체(돈, 인벤토리, 강화, 조합법)이고
 // tanks는 이번 라운드에만 쓰는 상태다. tanks 배열 순서가 곧 턴 순서(라운드마다 섞음).
@@ -20,9 +24,10 @@ export class Battle {
     this.wind = rand(-.5, .5) * MAX_WIND;
     this.state = 'aim'; this.settleT = 0; this.shake = 0; this.now = 0;
     this.cam = { x: 0, manual: false }; this.lastBoom = null;
+    this.viewW = VIEW; // 렌더러가 화면 비율에 맞춰 매 프레임 갱신
     this.turn = 0;
     this.startTurn();
-    this.cam.x = clamp(this.cur.x - VIEW / 2, 0, W - VIEW);
+    this.cam.x = this.camClamp(this.cur.x - this.viewW / 2);
   }
 
   makeTank(pl, x) {
@@ -30,14 +35,15 @@ export class Battle {
     return { pl, type, x, y: this.terrain.surfaceY(x) - 1, hp: type.hp, maxHp: type.hp,
       angle: x < W / 2 ? 55 : 125, power: 60, fuel: 100, fuelMax: 100, sel: type.sig[0], cd: 0,
       shield: false, itemUsed: false, dead: false, falling: false, vy: 0, fallFrom: 0, moveAcc: 0,
-      lastTrail: null, lastHitBy: null, ai: null, think: 0, dealt: 0, kills: 0 };
+      lastTrail: null, lastHitBy: null, ai: null, think: 0, dealt: 0, kills: 0,
+      hurtT: 9, blinkT: rand(1, 4) }; // 표정 애니메이션용
   }
 
   get cur() { return this.tanks[this.turn]; }
   get alive() { return this.tanks.filter(t => !t.dead); }
   human() { const t = this.cur; return this.state === 'aim' && t && !t.pl.cpu && !t.dead ? t : null; }
   stats(t, id) { return weaponStats(id, t.pl.upgrades); }
-  tip(t, a) { const r = a * DEG; return [t.x + Math.cos(r) * 18, t.y - 10 - Math.sin(r) * 18]; }
+  tip(t, a) { const r = a * DEG; return [t.x + Math.cos(r) * BODY.barrel, t.y - BODY.pivot - Math.sin(r) * BODY.barrel]; }
 
   // 이번 턴에 고를 수 있는 무기 목록. label은 HUD에 표시할 남은 수량/대기 턴.
   available(t) {
@@ -83,16 +89,20 @@ export class Battle {
   focusX() {
     if (this.projs.length) return this.projs.reduce((s, p) => s + p.x, 0) / this.projs.length;
     if (this.state !== 'aim' && this.lastBoom) return this.lastBoom.x;
-    return this.cur.x;
+    const t = this.cur; // 조준 중엔 화살표 쪽으로 조금 치우쳐서 본다
+    return t.pl.cpu ? t.x : t.x + Math.cos(t.angle * DEG) * 70;
   }
+  // 화면이 전장보다 넓으면 가운데 정렬
+  // 가장자리에서도 조준 화살표가 보이도록 전장 밖으로 조금(EDGE) 더 갈 수 있다
+  camClamp(x) { return this.viewW >= W ? (W - this.viewW) / 2 : clamp(x, -EDGE, W - this.viewW + EDGE); }
   updateCam(dt) {
-    if (this.cam.manual && !this.projs.length) return; // 직접 둘러보는 중이면 포탄이 날 때까지 그대로
+    if (this.cam.manual && !this.projs.length) { this.cam.x = this.camClamp(this.cam.x); return; } // 직접 둘러보는 중이면 포탄이 날 때까지 그대로
     this.cam.manual = false;
-    const tx = clamp(this.focusX() - VIEW / 2, 0, W - VIEW);
-    this.cam.x += (tx - this.cam.x) * Math.min(1, dt * (this.projs.length ? 6 : 3));
+    const tx = this.camClamp(this.focusX() - this.viewW / 2);
+    this.cam.x += (tx - this.cam.x) * Math.min(1, dt * (this.projs.length ? 6 : this.state === 'aim' ? 5 : 3));
   }
-  pan(dx) { this.cam.x = clamp(this.cam.x + dx, 0, W - VIEW); this.cam.manual = true; }
-  lookAt(x) { this.cam.x = clamp(x - VIEW / 2, 0, W - VIEW); this.cam.manual = true; }
+  pan(dx) { this.cam.x = this.camClamp(this.cam.x + dx); this.cam.manual = true; }
+  lookAt(x) { this.cam.x = this.camClamp(x - this.viewW / 2); this.cam.manual = true; }
 
   /* ---------- 턴 ---------- */
   startTurn() {
@@ -113,9 +123,9 @@ export class Battle {
   }
 
   /* ---------- 탱크 ---------- */
-  onGround(t) { return [-9, -5, 0, 5, 9].some(dx => this.terrain.isSolid(t.x + dx, t.y + 1)); }
+  onGround(t) { return [-11, -6, 0, 6, 11].some(dx => this.terrain.isSolid(t.x + dx, t.y + 1)); }
   blocked(x, y, dir) {
-    for (let k = 2; k <= 11; k += 3) if (this.terrain.isSolid(x + dir * 10, y - k)) return true;
+    for (let k = 2; k <= 14; k += 3) if (this.terrain.isSolid(x + dir * 12, y - k)) return true;
     return this.terrain.isSolid(x, y - 4);
   }
   tryMove(t, dir) {
@@ -136,6 +146,7 @@ export class Battle {
     if (dmg <= 0) return;
     t.hp = Math.max(0, t.hp - dmg);
     if (src && src !== t) { src.dealt += dmg; t.lastHitBy = src; }
+    t.hurtT = 0;
     this.float(t.x, t.y - 46, '-' + dmg, t.pl.color);
     if (t.hp <= 0) this.kill(t, true);
   }
@@ -184,7 +195,7 @@ export class Battle {
   }
   tankHit(p) {
     return this.tanks.find(t => !t.dead && !(t === p.owner && p.age < .25) &&
-      Math.abs(p.x - t.x) < 12 && p.y > t.y - 16 && p.y < t.y + 2);
+      Math.abs(p.x - t.x) < BODY.hw && p.y > t.y - BODY.h && p.y < t.y + 2);
   }
 
   // 부품 순서: 공중 분열 → 지형 접촉 시 튕김 → 굴착 → 폭발(또는 흙)
@@ -239,7 +250,7 @@ export class Battle {
     if (dmg > 0) {
       for (const t of this.tanks) {
         if (t.dead) continue;
-        const d = Math.hypot(t.x - x, t.y - 6 - y), reach = r + 12;
+        const d = Math.hypot(t.x - x, t.y - 10 - y), reach = r + 14;
         if (d < reach) this.hurt(t, Math.round(dmg * (1 - Math.max(0, d - 8) / reach)), src);
       }
     }
@@ -254,13 +265,13 @@ export class Battle {
     const n = 18 + r * .6;
     for (let i = 0; i < n; i++) {
       const a = rand(Math.PI * 1.05, Math.PI * 1.95), s = rand(80, 260) * (r / 30);
-      this.parts.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: rand(.5, 1.2), color: Math.random() < .4 ? '#ffcf7a' : '#7a3a2a' });
+      this.parts.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: rand(.5, 1.2), color: Math.random() < .45 ? '#ffd43b' : this.terrain.scene.ground[1] });
     }
     this.shake = Math.max(this.shake, r / 4);
     sfx('boom', r / 30);
   }
   puff(x, y) {
-    for (let i = 0; i < 8; i++) this.parts.push({ x, y, vx: rand(-80, 80), vy: rand(-140, -40), life: rand(.3, .6), color: '#fff2c9' });
+    for (let i = 0; i < 8; i++) this.parts.push({ x, y, vx: rand(-80, 80), vy: rand(-140, -40), life: rand(.3, .6), color: '#ffffff' });
   }
 
   /* ---------- 조작 ---------- */
@@ -273,6 +284,14 @@ export class Battle {
     if (act === 'angR') this.setAngle(t, t.angle - s);
     if (act === 'powU') this.setPower(t, t.power + s);
     if (act === 'powD') this.setPower(t, t.power - s);
+  }
+  // 화면에서 탱크를 끌어 조준: 방향이 각도, 길이가 파워
+  aimAt(t, wx, wy) {
+    const px = t.x, py = t.y - BODY.pivot, dx = wx - px, dy = py - wy;
+    let a = Math.atan2(dy, dx) / DEG;
+    if (a < 0) a = dx >= 0 ? 0 : 180; // 포신보다 아래로 끌면 수평으로
+    this.setAngle(t, a);
+    this.setPower(t, (Math.hypot(dx, dy) - ARROW.base) / ARROW.perPower);
   }
   // 누르는 순간 정확히 한 칸. held에는 누른 시간을 기록해 두고 humanUpdate에서 길게 누를 때만 반복한다.
   press(act) {
@@ -317,7 +336,11 @@ export class Battle {
   /* ---------- 루프 ---------- */
   update(dt) {
     this.now += dt;
-    for (const t of this.tanks) this.updateTank(t, dt);
+    for (const t of this.tanks) {
+      this.updateTank(t, dt);
+      t.hurtT += dt;
+      if ((t.blinkT -= dt) < -.12) t.blinkT = rand(2, 5);
+    }
     const cur = this.cur;
     if (this.state === 'aim') {
       if (cur.dead) { this.state = 'fire'; this.settleT = 0; }
@@ -329,7 +352,7 @@ export class Battle {
     this.projs = live.concat(this.spawned); this.spawned = [];
     for (const d of this.deaths) {
       d.delay -= dt;
-      if (d.delay <= 0) { this.blast(d.t.x, d.t.y - 6, 34, 22, null); d.done = true; }
+      if (d.delay <= 0) { this.blast(d.t.x, d.t.y - 10, 34, 22, null); d.done = true; }
     }
     this.deaths = this.deaths.filter(d => !d.done);
     for (const b of this.booms) b.t += dt;

@@ -1,6 +1,6 @@
-# 노을 포격전
+# 날벼락전쟁
 
-포트리스 / Scorched Earth 스타일의 턴제 포격 게임. 최대 10대(사람·CPU 섞어서)가 한 전장에서 차례로 쏘는 난타전.
+포트리스 / Scorched Earth 스타일의 캐주얼 턴제 포격 게임. 최대 10대(사람·CPU 섞어서)가 한 전장에서 차례로 쏘는 난타전.
 
 ## 실행
 
@@ -25,6 +25,13 @@ GitHub Pages 등 https 주소로 올리면 설치형 웹앱으로 동작한다.
 
 저장소 **Settings → Pages → Source: Deploy from a branch, Branch: main, / (root) → Save**.
 1~2분 뒤 `https://cookinglawyer.github.io/game-artillery/` 에서 열린다. `main`에 올릴 때마다 자동 갱신.
+
+## 조작
+
+- **조준:** 내 탱크(또는 화살표 끝)를 잡고 끈다. 화살표 방향이 각도, 길이가 파워. 점선 반원이 최대 파워.
+- **미세 조정:** 아래 조작판의 ↶ ↷(각도) − +(파워) 버튼, 숫자 직접 입력, 키보드 방향키(Shift와 함께 0.1씩).
+- **둘러보기:** 빈 곳을 끌거나 왼쪽 위 미니맵을 누른다.
+- 전투 화면은 화면 전체를 쓰고, 세로 화면에서는 위쪽을 하늘로 채워 높은 포물선도 보인다(`render.js`의 `viewFor`).
 
 ## 게임 흐름
 
@@ -59,7 +66,7 @@ GitHub Pages 등 https 주소로 올리면 설치형 웹앱으로 동작한다.
 | `src/battle.js` | 한 라운드의 난타전: 턴 순서, 카메라, 이동, 탄도, 폭발, 피해 |
 | `src/terrain.js` | 파괴 가능한 지형(픽셀 마스크 + 캔버스), 배경 |
 | `src/ai.js` | CPU 표적 선택·조준(탄도 시뮬레이션)과 CPU 상점(조합 포함) |
-| `src/render.js` | 전장 그리기, 미니맵, 탱크 실루엣 |
+| `src/render.js` | 화면 비율별 시야(`viewFor`), 하늘·구름, 캐릭터(`drawCritter`), 조준 화살표, 폭발, 미니맵 |
 | `src/main.js` | 화면 전환, 설정·상점·조합대 UI, HUD, 입력, PWA 등록 |
 | `sw.js`, `manifest.webmanifest`, `icons/` | 오프라인 실행, 설치 정보, 앱 아이콘 |
 

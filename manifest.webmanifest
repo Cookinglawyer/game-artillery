@@ -1,16 +1,31 @@
 {
-  "name": "노을 포격전",
-  "short_name": "포격전",
-  "description": "최대 10대가 한 전장에서 차례로 쏘는 포트리스식 포격 난타전",
+  "name": "날벼락전쟁",
+  "short_name": "날벼락전쟁",
+  "description": "최대 10명이 한 전장에서 차례로 쏘는 캐주얼 포격 난타전",
   "lang": "ko",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#120f22",
-  "theme_color": "#120f22",
+  "background_color": "#bfe8ff",
+  "theme_color": "#7fd1ff",
   "icons": [
-    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
   ]
 }

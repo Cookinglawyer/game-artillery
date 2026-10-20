@@ -1,9 +1,9 @@
-import { ECON, VIEW, PLAYER_COLORS, PLAYER_NAMES, MAX_LEVEL, COMBO_FEE } from './config.js';
+import { ECON, W, DEG, BODY, PLAYER_COLORS, PLAYER_NAMES, MAX_LEVEL, COMBO_FEE } from './config.js';
 import { WEAPONS, BASE_ORDER, weaponStats, upgradeCost, upgradeNote, statBits, comboId, isCombo } from './data/weapons.js';
 import { TANKS, TANK_ORDER } from './data/tanks.js';
 import { ITEMS, ITEM_ORDER } from './data/items.js';
-import { Battle } from './battle.js';
-import { render, drawTankShape, MINIMAP } from './render.js';
+import { Battle, ARROW } from './battle.js';
+import { render, drawCritter, viewFor } from './render.js';
 import { cpuShop } from './ai.js';
 import { ensureAudio, toggleSound, sfx } from './audio.js';
 
@@ -20,10 +20,12 @@ window.game = game; // 디버깅용 핸들
 
 function show(id) {
   for (const s of document.querySelectorAll('.screen')) s.hidden = s.id !== id;
+  document.body.dataset.screen = id;
   $('menu').hidden = $('score').hidden = id === 'scrSetup';
   window.scrollTo({ top: 0 });
 }
 function updateScore() {
+  $('roundTag').textContent = `라운드 ${Math.max(1, game.round)}/${game.rounds}`;
   const lead = [...game.players].sort((a, b) => b.wins - a.wins || b.totalDealt - a.totalDealt)[0];
   $('score').innerHTML = `<span class="k">라운드</span><span class="num">${Math.max(1, game.round)} / ${game.rounds}</span>` +
     (lead && lead.wins ? `<span class="k">선두</span><b style="color:${lead.color}">${esc(lead.name)}</b><span class="num">${lead.wins}승</span>` : '');
@@ -58,7 +60,7 @@ function renderTankGuide() {
     const t = TANKS[id];
     const bar = v => `<span class="sbar"><i style="width:${Math.round(Math.min(100, v))}%"></i></span>`;
     return `<div class="tcard">
-      <canvas width="112" height="60" data-tank="${id}" aria-hidden="true"></canvas>
+      <canvas width="160" height="100" data-tank="${id}" aria-hidden="true"></canvas>
       <span class="tname">${t.name}<small>${t.role}</small></span>
       <span class="stats"><span>체력</span>${bar(t.hp / 1.25)}<span>기동</span>${bar(t.move / 1.4 * 100)}<span>장갑</span>${bar(10 + t.armor * 900)}</span>
       <span class="sig">${WEAPONS[t.sig[0]].name} <span class="dim">·</span> 특기 ${WEAPONS[t.sig[1]].name}</span>
@@ -66,7 +68,7 @@ function renderTankGuide() {
   }).join('');
   $('tankGuide').querySelectorAll('canvas').forEach((c, i) => {
     const g = c.getContext('2d'); g.scale(2, 2);
-    drawTankShape(g, c.dataset.tank, PLAYER_COLORS[i], 28, 26, 40);
+    drawCritter(g, c.dataset.tank, PLAYER_COLORS[i], 34, 44, 40);
   });
 }
 $('roster').addEventListener('input', e => { const { i, f } = e.target.dataset; if (f) setup[+i][f] = e.target.value; });
@@ -105,7 +107,7 @@ function renderShop() {
   $('shopWeapons').innerHTML = BASE_ORDER.map(id => weaponRow(pl, type, id)).join('');
   $('shopCombos').innerHTML = pl.recipes.length
     ? pl.recipes.map(id => comboRow(pl, id)).join('')
-    : '<p class="hint empty">아직 등록한 조합법이 없습니다. 오른쪽 조합대에서 두 무기를 골라 등록하세요.</p>';
+    : '<p class="hint empty">아직 등록한 조합법이 없습니다. 조합대에서 두 무기를 골라 등록하세요.</p>';
   $('shopItems').innerHTML = ITEM_ORDER.map(id => itemRow(pl, id)).join('');
   renderComboBench(pl);
 }
@@ -258,11 +260,10 @@ function hud(b) {
   hudKey = key;
   $('chip').style.background = t.pl.color;
   $('pName').textContent = t.pl.name;
-  $('pType').textContent = `${t.type.name} · ${t.pl.cpu ? 'CPU' : '사람'}${t.shield ? ' · 방어막' : ''}`;
+  $('pType').textContent = `${t.type.name} · ${t.pl.cpu ? '컴퓨터' : '사람'}${t.shield ? ' · 방어막' : ''}`;
   $('hpVal').textContent = t.hp; $('hpBar').style.width = (t.hp / t.maxHp * 100) + '%';
   if (document.activeElement !== $('angVal')) $('angVal').value = fmt(t.angle);
   if (document.activeElement !== $('powVal')) $('powVal').value = fmt(t.power);
-  $('powBar').style.width = t.power + '%';
   $('fuelBar').style.width = (t.fuel / t.fuelMax * 100) + '%';
   $('weapons').innerHTML = b.available(t).map((a, i) => {
     const s = b.stats(t, a.id), lv = isCombo(a.id) ? 0 : s.level;
@@ -274,6 +275,7 @@ function hud(b) {
     return `<button type="button" data-use="${id}"${!h || t.itemUsed || !n ? ' disabled' : ''} title="${ITEMS[id].desc}">${ITEMS[id].short}<em>${n}</em></button>`;
   }).join('');
   $('deck').classList.toggle('locked', !h);
+  $('aimHint').hidden = !(h && !game.aimedOnce);
 }
 let rosterKey = '';
 function roster(b) {
@@ -344,38 +346,73 @@ const fmt = v => (Number.isInteger(v) ? String(v) : v.toFixed(1));
 });
 $('fire').addEventListener('click', () => { const b = inBattle(), t = b?.human(); if (t) { ensureAudio(); b.fire(t); } });
 
-// 전장 끌어서 둘러보기, 미니맵 누르면 그 위치로
-let drag = null;
-const toCanvas = e => { const r = cv.getBoundingClientRect(), k = VIEW / r.width; return [(e.clientX - r.left) * k, (e.clientY - r.top) * k, k]; };
+// 전장 입력: 내 탱크나 화살표 끝을 잡고 끌면 조준(방향 = 각도, 길이 = 파워),
+// 다른 곳을 끌면 둘러보기, 미니맵을 누르면 그 위치로.
+let drag = null, view = null, dpr = 1;
+const pointer = (b, e) => {
+  const r = cv.getBoundingClientRect(), sx = e.clientX - r.left, sy = e.clientY - r.top;
+  return { sx, sy, wx: b.cam.x + sx / view.s, wy: view.yTop + sy / view.s };
+};
 cv.addEventListener('pointerdown', e => {
-  const b = inBattle(); if (!b) return;
-  const [x, y] = toCanvas(e), M = MINIMAP;
-  if (x >= M.x && x <= M.x + M.w && y >= M.y && y <= M.y + M.h) { b.lookAt((x - M.x) / M.w * (b.terrain.cv.width)); return; }
-  drag = { x: e.clientX }; cv.setPointerCapture?.(e.pointerId);
+  const b = inBattle(); if (!b || !view) return;
+  ensureAudio();
+  const p = pointer(b, e), M = b.minimap;
+  if (M && p.sx >= M.x && p.sx <= M.x + M.w && p.sy >= M.y && p.sy <= M.y + M.h) { b.lookAt((p.sx - M.x) / M.w * W); return; }
+  cv.setPointerCapture?.(e.pointerId);
+  const t = b.human();
+  if (t) {
+    const py = t.y - BODY.pivot, r = t.angle * DEG, L = ARROW.base + t.power * ARROW.perPower;
+    const dist = (x, y) => Math.hypot(p.wx - x, p.wy - y) * view.s; // 화면 픽셀 거리
+    const onTip = dist(t.x + Math.cos(r) * L, py - Math.sin(r) * L) < 48;
+    if (onTip || dist(t.x, py) < 56) {
+      drag = { mode: 'aim', x: e.clientX, y: e.clientY, moved: onTip };
+      if (onTip) b.aimAt(t, p.wx, p.wy);
+      game.aimedOnce = true; hudKey = '';
+      return;
+    }
+  }
+  drag = { mode: 'pan', x: e.clientX };
 });
 cv.addEventListener('pointermove', e => {
-  const b = inBattle(); if (!b || !drag) return;
-  const [, , k] = toCanvas(e);
-  b.pan(-(e.clientX - drag.x) * k); drag.x = e.clientX;
+  const b = inBattle(); if (!b || !drag || !view) return;
+  if (drag.mode === 'aim') {
+    const t = b.human(); if (!t) { drag = null; return; }
+    if (!drag.moved && Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 8) return; // 탱크를 살짝 누른 것만으로는 바꾸지 않는다
+    drag.moved = true;
+    const p = pointer(b, e); b.aimAt(t, p.wx, p.wy);
+    return;
+  }
+  b.pan(-(e.clientX - drag.x) / view.s); drag.x = e.clientX;
 });
 ['pointerup', 'pointercancel'].forEach(ev => cv.addEventListener(ev, () => { drag = null; }));
 
-$('sound').addEventListener('click', e => {
+function sizeCanvas() {
+  const r = cv.getBoundingClientRect(), w = Math.round(r.width), h = Math.round(r.height);
+  dpr = Math.min(2, window.devicePixelRatio || 1);
+  if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+  const top = $('hudTop').getBoundingClientRect().bottom - r.top, bottom = r.bottom - $('deck').getBoundingClientRect().top;
+  $('scrBattle').style.setProperty('--padB', bottom + 'px');
+  view = game.view = viewFor(w, h, top, bottom);
+}
+
+document.querySelectorAll('.sound-toggle').forEach(btn => btn.addEventListener('click', () => {
   const on = toggleSound();
-  e.currentTarget.textContent = on ? '소리 켬' : '소리 끔';
-  e.currentTarget.setAttribute('aria-pressed', on);
-});
+  document.querySelectorAll('.sound-toggle').forEach(x => { x.textContent = x.dataset.short ? (on ? '소리' : '음소거') : (on ? '소리 켬' : '소리 끔'); x.setAttribute('aria-pressed', on); });
+}));
 $('fast').addEventListener('click', e => {
   game.fast = game.fast === 1 ? 3 : 1;
-  e.currentTarget.textContent = game.fast === 1 ? 'CPU 턴 보통 속도' : 'CPU 턴 3배속';
+  e.currentTarget.textContent = '×' + game.fast;
   e.currentTarget.setAttribute('aria-pressed', game.fast > 1);
 });
-let menuTimer;
-$('menu').addEventListener('click', e => {
-  const btn = e.currentTarget;
-  if (btn.dataset.armed) { clearTimeout(menuTimer); delete btn.dataset.armed; btn.textContent = '처음으로'; return toSetup(); }
-  btn.dataset.armed = '1'; btn.textContent = '한 번 더 누르면 나갑니다';
-  menuTimer = setTimeout(() => { delete btn.dataset.armed; btn.textContent = '처음으로'; }, 3000);
+// 나가기는 두 번 눌러야 한다(실수 방지)
+document.querySelectorAll('.menu-btn').forEach(btn => {
+  const label = btn.textContent;
+  let timer;
+  btn.addEventListener('click', () => {
+    if (btn.dataset.armed) { clearTimeout(timer); delete btn.dataset.armed; btn.textContent = label; return toSetup(); }
+    btn.dataset.armed = '1'; btn.textContent = '한 번 더 누르면 나가요';
+    timer = setTimeout(() => { delete btn.dataset.armed; btn.textContent = label; }, 3000);
+  });
 });
 
 /* ---------- PWA ---------- */
@@ -471,7 +508,8 @@ function frame(ts) {
   if (b) {
     const steps = b.cur.pl.cpu && b.state !== 'over' ? game.fast : 1;
     for (let i = 0; i < steps && game.battle === b; i++) b.update(dt);
-    render(ctx, b); hud(b); roster(b);
+    sizeCanvas();
+    render(ctx, b, view, dpr); hud(b); roster(b);
   }
   requestAnimationFrame(frame);
 }

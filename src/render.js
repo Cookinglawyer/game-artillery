@@ -1,6 +1,8 @@
 import { W, H, MAX_WIND, TAU, DEG, BODY, rand } from './config.js';
 import { PARALLAX } from './terrain.js';
 import { ARROW } from './battle.js';
+import { TANKS } from './data/tanks.js';
+import { SHIELDS } from './data/items.js';
 
 const INK = '#2d3047';
 const FONT = '"Jua", "Noto Sans KR", sans-serif';
@@ -27,99 +29,265 @@ const line = (c, x1, y1, x2, y2) => { c.beginPath(); c.moveTo(x1, y1); c.lineTo(
 const ellipse = (c, x, y, rx, ry, rot = 0) => { c.beginPath(); c.ellipse(x, y, rx, ry, rot, 0, TAU); };
 const pill = (c, x, y, w, h) => { c.beginPath(); c.roundRect ? c.roundRect(x, y, w, h, h / 2) : c.rect(x, y, w, h); };
 
-// 귀여운 탱크 캐릭터. 설정 화면과 아이콘에서도 쓴다.
-// o: { t: 시간(초), blink, hurt, dead }
-export function drawCritter(c, type, color, x, y, angle, o = {}) {
-  const r = angle * DEG, face = Math.cos(r) >= 0 ? 1 : -1, px = x, py = y - BODY.pivot;
-  c.save();
+const SKIN = '#ffd9bd';
+const rgba = (hex, a) => { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; };
+const circle = (c, x, y, r) => { c.beginPath(); c.arc(x, y, r, 0, TAU); };
+function star(c, x, y, r) {
+  c.beginPath();
+  for (let i = 0; i < 10; i++) { const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * .45 : r; c.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr); }
+  c.closePath(); c.fill();
+}
+
+// 국기: 가로 12 × 세로 8, 왼쪽 위가 원점
+function drawFlag(c, id) {
+  const R = (x, y, w, h, col) => { c.fillStyle = col; c.fillRect(x, y, w, h); };
+  switch (id) {
+    case 'kr':
+      R(0, 0, 12, 8, '#fff');
+      c.fillStyle = '#cd2e3a'; c.beginPath(); c.arc(6, 4, 2.2, Math.PI, 0); c.fill();
+      c.fillStyle = '#0047a0'; c.beginPath(); c.arc(6, 4, 2.2, 0, Math.PI); c.fill();
+      c.fillStyle = '#222'; for (const [x, y] of [[1.6, 1.5], [10.4, 1.5], [1.6, 6.5], [10.4, 6.5]]) c.fillRect(x - .8, y - .7, 1.6, 1.4);
+      break;
+    case 'us': for (let i = 0; i < 5; i++) R(0, i * 1.6, 12, 1.6, i % 2 ? '#fff' : '#b22234'); R(0, 0, 5, 4.8, '#3c3b6e'); break;
+    case 'kp':
+      R(0, 0, 12, 8, '#024fa2'); R(0, 1.2, 12, 5.6, '#fff'); R(0, 1.6, 12, 4.8, '#ed1c27');
+      c.fillStyle = '#fff'; circle(c, 4, 4, 1.8); c.fill(); c.fillStyle = '#ed1c27'; star(c, 4, 4, 1.4);
+      break;
+    case 'ru': R(0, 0, 12, 2.67, '#fff'); R(0, 2.67, 12, 2.67, '#0039a6'); R(0, 5.33, 12, 2.67, '#d52b1e'); break;
+    case 'cn': R(0, 0, 12, 8, '#de2910'); c.fillStyle = '#ffde00'; star(c, 2.8, 2.6, 1.7); break;
+    case 'jp': R(0, 0, 12, 8, '#fff'); c.fillStyle = '#bc002d'; circle(c, 6, 4, 2.3); c.fill(); break;
+    case 'de': R(0, 0, 12, 2.67, '#111'); R(0, 2.67, 12, 2.67, '#dd0000'); R(0, 5.33, 12, 2.67, '#ffce00'); break;
+    case 'fr': R(0, 0, 4, 8, '#0055a4'); R(4, 0, 4, 8, '#fff'); R(8, 0, 4, 8, '#ef4135'); break;
+  }
+  c.strokeStyle = INK; c.lineWidth = .8; c.strokeRect(0, 0, 12, 8);
+}
+
+// 머리 모양. 머리 위쪽을 덮는 둥근 '머리카락 모자'에 스타일별 특징을 더한다.
+function drawHair(c, R, x, y, r, f) {
+  c.fillStyle = R.hairColor; c.strokeStyle = INK; c.lineWidth = 1.3;
+  const cap = (ry = .5, cy = .6, rx = .7) => { ellipse(c, x, y - r * cy, r + rx, r * ry); c.fill(); c.stroke(); };
+  switch (R.hair) {
+    case 'side': // 옆 가르마
+      cap();
+      c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = 1; line(c, x - f * 2.2, y - r * 1.05, x - f * 1.2, y - r * .45);
+      break;
+    case 'swoop': // 앞이마로 쓸어 넘긴 풍성한 금발
+      cap(.52, .6, 1.1);
+      c.beginPath(); c.moveTo(x - f * (r + .5), y - r * .5);
+      c.quadraticCurveTo(x - f * 1, y - r * 1.45, x + f * (r + 1.8), y - r * .62);
+      c.quadraticCurveTo(x + f * 2, y - r * .25, x - f * (r * .2), y - r * .5); c.closePath(); c.fill(); c.stroke();
+      break;
+    case 'flattop': // 옆은 짧게, 위는 높고 평평하게
+      c.fillStyle = '#6b6b72'; ellipse(c, x, y - r * .35, r + .5, r * .45); c.fill();
+      c.fillStyle = R.hairColor;
+      c.beginPath(); c.roundRect ? c.roundRect(x - r * .82, y - r - 2.2, r * 1.64, 2.2 + r * .5, [3, 3, 1, 1]) : c.rect(x - r * .82, y - r - 2.2, r * 1.64, 2.2 + r * .5); c.fill(); c.stroke();
+      break;
+    case 'thin': // 옆머리만 조금, 정수리는 성글게
+      c.globalAlpha = .55; ellipse(c, x, y - r * .78, r * .8, r * .28); c.fill(); c.globalAlpha = 1;
+      ellipse(c, x - r * .88, y - r * .25, 1.5, 2.6); c.fill(); ellipse(c, x + r * .88, y - r * .25, 1.5, 2.6); c.fill();
+      break;
+    case 'combed': // 단정히 뒤로 넘긴 머리
+      cap(.55, .58, .8);
+      c.strokeStyle = 'rgba(255,255,255,.3)'; c.lineWidth = 1; c.beginPath(); c.arc(x, y - r * .2, r * .75, Math.PI * 1.15, Math.PI * 1.6); c.stroke();
+      break;
+    case 'bob': // 단발(뒷머리는 얼굴보다 먼저 그린다), 앞머리
+      cap(.48, .62, 1);
+      c.fillRect(x - r - 1.2, y - r * .4, 2.2, r * .9); c.fillRect(x + r - 1, y - r * .4, 2.2, r * .9);
+      break;
+    case 'fringe': // 대머리에 옆·뒷머리만
+      c.fillStyle = R.hairColor;
+      ellipse(c, x - f * r * .86, y - r * .1, 1.9, 3.4); c.fill(); c.stroke();
+      ellipse(c, x + f * r * .9, y - r * .05, 1.2, 2.6); c.fill();
+      c.fillStyle = 'rgba(255,255,255,.6)'; ellipse(c, x - f * 1.5, y - r * .7, 2, 1.1); c.fill();
+      break;
+    case 'swept': // 옆으로 쓸어 넘긴 짧은 머리
+      cap(.48, .62, .6);
+      ellipse(c, x + f * 3, y - r * .9, 3.6, 1.8, -f * .3); c.fill(); c.stroke();
+      break;
+  }
+}
+
+// 포탑 위로 상반신을 내민 지도자. y는 포탑 윗면(해치) 높이.
+function drawRider(c, R, x, y, f, o) {
   c.lineJoin = 'round'; c.lineCap = 'round';
-  c.fillStyle = 'rgba(45,48,71,.16)'; ellipse(c, x, y + 1, 16, 3.5); c.fill();
-  if (o.dead) {
-    c.fillStyle = '#d5d9e2'; c.strokeStyle = INK; c.lineWidth = 2.2;
-    ellipse(c, x, y - 7, 16, 8); c.fill(); c.stroke();
-    c.lineWidth = 1.8;
-    for (const ex of [x - 5, x + 5]) { line(c, ex - 2.2, y - 9.5, ex + 2.2, y - 5.5); line(c, ex + 2.2, y - 9.5, ex - 2.2, y - 5.5); }
-    c.strokeStyle = '#ffd43b'; c.lineWidth = 2.2; ellipse(c, x, y - 20 - Math.sin((o.t || 0) * 3) * 1.5, 7, 2.5); c.stroke();
-    c.restore(); return;
-  }
-  // 포신
-  const bw = type === 'missile' ? 9 : type === 'cannon' ? 8 : 7, ex = px + Math.cos(r) * BODY.barrel, ey = py - Math.sin(r) * BODY.barrel;
-  c.strokeStyle = INK; c.lineWidth = bw + 4.5; line(c, px, py, ex, ey);
-  c.strokeStyle = shade(color, -.18); c.lineWidth = bw; line(c, px, py, ex, ey);
-  c.strokeStyle = 'rgba(255,255,255,.45)'; c.lineWidth = 2;
-  line(c, px - Math.sin(r) * bw * .2, py - Math.cos(r) * bw * .2, ex - Math.sin(r) * bw * .2, ey - Math.cos(r) * bw * .2);
-  c.fillStyle = shade(color, -.3); c.strokeStyle = INK; c.lineWidth = 2;
-  c.beginPath(); c.arc(ex, ey, bw / 2 + 1.8, 0, TAU); c.fill(); c.stroke();
-  // 발
-  if (type !== 'bouncer') { c.fillStyle = INK; ellipse(c, x - 8, y - 1.8, 5.5, 3.2); c.fill(); ellipse(c, x + 8, y - 1.8, 5.5, 3.2); c.fill(); }
-  // 몸통
-  c.fillStyle = color; c.strokeStyle = INK; c.lineWidth = 2.4;
-  let cx = x, cy = y - 12;
-  if (type === 'missile') {
-    c.fillStyle = shade(color, -.2);
-    c.beginPath(); c.moveTo(x - face * 10, y - 16); c.lineTo(x - face * 20, y - 25); c.lineTo(x - face * 16, y - 12); c.closePath(); c.fill(); c.stroke();
-    c.fillStyle = color; c.beginPath(); c.roundRect ? c.roundRect(x - 16, y - 21, 32, 18, 9) : c.rect(x - 16, y - 21, 32, 18); c.fill(); c.stroke();
-    cy = y - 12;
-  } else if (type === 'drill') {
-    c.fillStyle = '#dfe3ec';
-    c.beginPath(); c.moveTo(x + face * 11, y - 19); c.lineTo(x + face * 26, y - 11); c.lineTo(x + face * 11, y - 3); c.closePath(); c.fill(); c.stroke();
-    c.strokeStyle = 'rgba(45,48,71,.5)'; c.lineWidth = 1.5;
-    for (let k = 0; k < 3; k++) line(c, x + face * (13 + k * 4), y - 17 + k * 2, x + face * (15 + k * 4), y - 5 - k * 2);
-    c.fillStyle = color; c.strokeStyle = INK; c.lineWidth = 2.4;
-    ellipse(c, x, y - 12, 15.5, 12.5); c.fill(); c.stroke();
-    c.fillStyle = shade(color, -.2); c.beginPath(); c.arc(x, y - 18, 9, Math.PI, 0); c.fill(); c.stroke();
-  } else if (type === 'bouncer') {
-    const bob = Math.abs(Math.sin((o.t || 0) * 4)) * 3;
-    c.strokeStyle = INK; c.lineWidth = 2.4;
-    c.beginPath(); c.moveTo(x - 5, y - 1); for (let k = 0; k < 4; k++) c.lineTo(x + (k % 2 ? -5 : 5), y - 2 - (k + 1) * (2 + bob / 4)); c.stroke();
-    cy = y - 16 - bob;
-    c.fillStyle = color; c.strokeStyle = INK; c.lineWidth = 2.4;
-    c.beginPath(); c.arc(x, cy, 12.5, 0, TAU); c.fill(); c.stroke();
+  c.fillStyle = '#2b2b2b'; ellipse(c, x, y, 7.5, 2.2); c.fill();
+  // 정장 몸통
+  c.fillStyle = o.dead ? '#8d939b' : R.suit; c.strokeStyle = INK; c.lineWidth = 1.6;
+  c.beginPath(); c.moveTo(x - 7, y); c.quadraticCurveTo(x - 7.5, y - 8, x - 3, y - 9); c.lineTo(x + 3, y - 9); c.quadraticCurveTo(x + 7.5, y - 8, x + 7, y); c.closePath(); c.fill(); c.stroke();
+  // 셔츠·넥타이 / 깃 높은 옷 / 목걸이
+  if (R.tie || R.necklace) { c.fillStyle = '#fff'; c.beginPath(); c.moveTo(x - 2.4, y - 9); c.lineTo(x, y - 5); c.lineTo(x + 2.4, y - 9); c.closePath(); c.fill(); }
+  if (R.tie) {
+    c.fillStyle = R.tie; c.beginPath(); c.moveTo(x - .9, y - 8.4); c.lineTo(x + .9, y - 8.4); c.lineTo(x + 1.3, y - 3); c.lineTo(x, y - 1.6); c.lineTo(x - 1.3, y - 3); c.closePath(); c.fill();
+  } else if (R.necklace) {
+    c.fillStyle = '#fff'; c.strokeStyle = 'rgba(45,48,71,.5)'; c.lineWidth = .4;
+    for (let i = -2; i <= 2; i++) { circle(c, x + i * 1.3, y - 7.6 + Math.abs(i) * -.35, .65); c.fill(); c.stroke(); }
   } else {
-    ellipse(c, x, y - 12, 16, 13); c.fill(); c.stroke();
-    c.fillStyle = shade(color, .35); ellipse(c, x, y - 4, 10, 3); c.fill();
+    c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = .8; line(c, x, y - 8, x, y - 1);
+    for (const by of [y - 6, y - 3]) { c.fillStyle = 'rgba(255,255,255,.5)'; circle(c, x + .9, by, .5); c.fill(); }
   }
-  c.fillStyle = 'rgba(255,255,255,.6)'; ellipse(c, cx - 6, cy - 6, 4.5, 2.8, -.5); c.fill();
-  // 얼굴: 조준하는 쪽을 바라본다
-  const fx = cx + face * 3.5, fy = cy - 1, lx = Math.cos(r) * 1.3, ly = -Math.sin(r) * 1.3;
-  c.fillStyle = 'rgba(255,120,150,.5)'; ellipse(c, fx - 8.5, fy + 4, 2.8, 1.8); c.fill(); ellipse(c, fx + 8.5, fy + 4, 2.8, 1.8); c.fill();
-  c.strokeStyle = INK; c.lineWidth = 1.6;
-  for (const ex2 of [fx - 4.6, fx + 4.6]) {
-    if (o.hurt) { line(c, ex2 - 2.2, fy - 3, ex2 + 1.6, fy - 1); line(c, ex2 + 1.6, fy - 1, ex2 - 2.2, fy + 1); }
-    else if (o.blink) { c.beginPath(); c.arc(ex2, fy - 1.5, 2.6, .15 * Math.PI, .85 * Math.PI); c.stroke(); }
-    else {
-      c.fillStyle = '#fff'; ellipse(c, ex2, fy - 1.5, 3.3, 4.1); c.fill(); c.stroke();
-      c.fillStyle = INK; c.beginPath(); c.arc(ex2 + lx, fy - 1.3 + ly, 1.9, 0, TAU); c.fill();
-      c.fillStyle = '#fff'; c.beginPath(); c.arc(ex2 + lx + .7, fy - 2.2 + ly, .7, 0, TAU); c.fill();
+  // 손 흔들기
+  const wave = o.dead ? 0 : Math.sin((o.t || 0) * 5 + x) * 2;
+  c.strokeStyle = INK; c.lineWidth = 3.8; line(c, x + f * 5.5, y - 6.5, x + f * 9.5, y - 13 + wave);
+  c.strokeStyle = o.dead ? '#8d939b' : R.suit; c.lineWidth = 2.2; line(c, x + f * 5.5, y - 6.5, x + f * 9.5, y - 13 + wave);
+  c.fillStyle = SKIN; c.strokeStyle = INK; c.lineWidth = 1; circle(c, x + f * 9.8, y - 14 + wave, 1.9); c.fill(); c.stroke();
+  // 머리
+  const hr = R.round ? 7.5 : 7, hx = x, hy = y - 9 - hr + 1.5;
+  if (R.hair === 'bob') { c.fillStyle = R.hairColor; c.strokeStyle = INK; c.lineWidth = 1.4; ellipse(c, hx, hy + 1.2, hr + 2.4, hr + 1.8); c.fill(); c.stroke(); }
+  c.fillStyle = SKIN; c.strokeStyle = INK; c.lineWidth = 1.6;
+  ellipse(c, hx, hy, hr * (R.round ? 1.08 : 1), hr); c.fill(); c.stroke();
+  drawHair(c, R, hx, hy, hr, f);
+  // 얼굴: 바라보는 쪽으로 살짝
+  const fx = hx + f * 1.3, ey = hy + 1;
+  c.fillStyle = 'rgba(255,120,140,.45)'; ellipse(c, fx - 4.3, ey + 2.6, 1.5, 1); c.fill(); ellipse(c, fx + 4.3, ey + 2.6, 1.5, 1); c.fill();
+  c.strokeStyle = INK; c.fillStyle = INK; c.lineWidth = 1.1;
+  for (const [ex, side] of [[fx - 2.5, -1], [fx + 2.5, 1]]) {
+    if (o.dead) { line(c, ex - 1, ey - 1, ex + 1, ey + 1); line(c, ex + 1, ey - 1, ex - 1, ey + 1); }
+    else if (o.hurt) { line(c, ex - side * 1.1, ey - 1.2, ex + side * .9, ey); line(c, ex + side * .9, ey, ex - side * 1.1, ey + 1.2); }
+    else if (o.blink) line(c, ex - 1, ey, ex + 1, ey);
+    else { circle(c, ex + f * .4, ey, 1.05); c.fill(); }
+  }
+  if (R.glasses) {
+    c.strokeStyle = INK; c.lineWidth = .9;
+    c.strokeRect(fx - 4.4, ey - 1.6, 3.7, 3); c.strokeRect(fx + .7, ey - 1.6, 3.7, 3); line(c, fx - .7, ey - .5, fx + .7, ey - .5);
+  }
+  if (o.dead || o.hurt) { c.fillStyle = INK; ellipse(c, fx, ey + 3.4, 1.1, 1.4); c.fill(); }
+  else { c.lineWidth = 1; c.beginPath(); c.arc(fx, ey + 2.1, 1.8, .15 * Math.PI, .85 * Math.PI); c.stroke(); }
+  if (o.dead) { c.strokeStyle = '#fcc419'; c.lineWidth = 1.6; ellipse(c, hx, hy - hr - 4 - Math.sin((o.t || 0) * 3), 5, 1.6); c.stroke(); }
+}
+
+const CAMO = [[-15, -12, 6, 2.6, 1], [3, -12.5, 7, 2.4, 2], [17, -11, 4, 2, 1], [-7, -19, 5, 2.5, 2], [8, -20, 4.5, 2, 1], [-1, -15, 3, 1.6, 2]];
+
+// 나라별 탱크 + 지도자. 설정 화면 미리보기와 앱 아이콘에서도 쓴다.
+// o: { t: 시간(초), blink, hurt, dead, noRider }
+export function drawVehicle(c, id, x, y, angle, o = {}) {
+  const T = TANKS[id] || TANKS.kr, r = angle * DEG, f = Math.cos(r) >= 0 ? 1 : -1;
+  const col = k => (o.dead ? ['#a3a9b0', '#8a9097', '#6f757c'][k] : T.camo[k]);
+  const P = (dx, dy) => [x + f * dx, y + dy];
+  const poly = pts => { c.beginPath(); pts.forEach(([dx, dy], i) => { const [px, py] = P(dx, dy); if (i) c.lineTo(px, py); else c.moveTo(px, py); }); c.closePath(); };
+  const camo = () => { c.save(); c.clip(); for (const [dx, dy, rx, ry, k] of CAMO) { c.fillStyle = col(k); const [px, py] = P(dx, dy); ellipse(c, px, py, rx, ry, .3); c.fill(); } c.restore(); };
+  c.save(); c.lineJoin = 'round'; c.lineCap = 'round';
+  c.fillStyle = 'rgba(45,48,71,.18)'; ellipse(c, x, y + 1, 28, 4); c.fill();
+  // 포신(회전축은 포탑 가운데)
+  const px = x, py = y - BODY.pivot, ex = px + Math.cos(r) * BODY.barrel, ey = py - Math.sin(r) * BODY.barrel;
+  c.strokeStyle = INK; c.lineWidth = 7.5; line(c, px, py, ex, ey);
+  c.strokeStyle = o.dead ? '#7d838a' : '#4a5040'; c.lineWidth = 4.2; line(c, px, py, ex, ey);
+  c.fillStyle = col(0); c.strokeStyle = INK; c.lineWidth = 1.4;
+  circle(c, px + Math.cos(r) * BODY.barrel * .58, py - Math.sin(r) * BODY.barrel * .58, 3.3); c.fill(); c.stroke();
+  c.fillStyle = INK; circle(c, ex, ey, 2.9); c.fill();
+  // 궤도와 바퀴
+  c.fillStyle = '#3b3d42'; c.strokeStyle = INK; c.lineWidth = 1.8;
+  c.beginPath(); c.roundRect ? c.roundRect(x - 25, y - 10, 50, 10, 5) : c.rect(x - 25, y - 10, 50, 10); c.fill(); c.stroke();
+  for (let i = 0; i < 6; i++) {
+    const wx = x - 18.5 + i * 7.4;
+    c.fillStyle = '#8d939b'; c.lineWidth = 1.1; circle(c, wx, y - 5, 3.1); c.fill(); c.stroke();
+    c.fillStyle = '#5c6168'; circle(c, wx, y - 5, 1.1); c.fill();
+  }
+  // 차체
+  poly([[-25, -9], [25, -9], [28, -12], [21, -16], [-23, -16], [-26, -12]]);
+  const hull = [[-25, -9], [25, -9], [28, -12], [21, -16], [-23, -16], [-26, -12]];
+  c.fillStyle = col(0); c.fill(); camo(); poly(hull); c.strokeStyle = INK; c.lineWidth = 2; c.stroke();
+  // 깃발(포탑 뒤 안테나)
+  const [fx0, fy0] = P(-11, -T.top);
+  c.strokeStyle = INK; c.lineWidth = 1.2; line(c, fx0, fy0, fx0, fy0 - 18);
+  c.save(); c.translate(fx0, fy0 - 18); c.scale(-f, 1); c.transform(1, Math.sin((o.t || 0) * 5 + x) * .08, 0, 1, 0, 0);
+  if (o.dead) c.globalAlpha = .5;
+  drawFlag(c, T.flag); c.restore();
+  // 포탑
+  poly(T.turret); c.fillStyle = col(0); c.fill(); camo(); poly(T.turret); c.strokeStyle = INK; c.lineWidth = 2; c.stroke();
+  c.fillStyle = 'rgba(255,255,255,.25)'; poly(T.turret.map(([dx, dy]) => [dx * .7, dy - 1.5 + (dy + T.top) * -.6])); c.fill();
+  // 지도자
+  if (!o.noRider) { const [rx, ry] = P(-3, -T.top); drawRider(c, T.rider, rx, ry, f, o); }
+  // 부서진 탱크 연기
+  if (o.dead) {
+    for (let i = 0; i < 3; i++) {
+      const k = ((o.t || 0) * .6 + i / 3) % 1;
+      c.fillStyle = `rgba(120,125,135,${.45 * (1 - k)})`; circle(c, x + f * 8 + Math.sin(k * 6 + i) * 3, y - 24 - k * 30, 4 + k * 6); c.fill();
     }
   }
-  if (o.hurt) { c.fillStyle = INK; c.beginPath(); c.arc(fx, fy + 4.5, 1.8, 0, TAU); c.fill(); }
-  else { c.beginPath(); c.arc(fx, fy + 3, 2.4, .2 * Math.PI, .8 * Math.PI); c.stroke(); }
   c.restore();
 }
 
 function drawTank(c, b, t, active, v) {
-  const { x, y } = t;
-  drawCritter(c, t.pl.tank, t.pl.color, x, y, t.angle, { t: b.now, dead: t.dead, blink: t.blinkT < 0, hurt: t.hurtT < .6 });
+  const { x, y } = t, k = 1 / v.s, shake = t.hurtT < .3 ? Math.sin(b.now * 80) * 1.2 : 0;
+  drawVehicle(c, t.pl.tank, x + shake, y, t.angle, { t: b.now, dead: t.dead, blink: t.blinkT < 0, hurt: t.hurtT < .6 });
   if (t.dead) return;
-  if (t.shield) {
-    c.fillStyle = 'rgba(155,231,255,.18)'; c.strokeStyle = 'rgba(80,190,255,.9)'; c.lineWidth = 2;
-    c.beginPath(); c.arc(x, y - 12, 24, 0, TAU); c.fill(); c.stroke();
-    c.strokeStyle = 'rgba(255,255,255,.9)'; c.beginPath(); c.arc(x, y - 12, 19, Math.PI * 1.15, Math.PI * 1.45); c.stroke();
+  // 방어막: 단계가 높을수록 두껍고, 깎일수록 얇아진다
+  if (t.shield > 0) {
+    const S = SHIELDS[t.shieldTier] || SHIELDS[1], frac = t.shield / t.shieldMax, pulse = 1 + Math.sin(b.now * 3) * .03;
+    c.fillStyle = rgba(S.color, .12); c.strokeStyle = S.color; c.lineWidth = S.width * (.45 + .55 * frac);
+    circle(c, x, y - 20, 38 * pulse); c.fill(); c.stroke();
+    c.strokeStyle = 'rgba(255,255,255,.85)'; c.lineWidth = 2; c.beginPath(); c.arc(x, y - 20, 32 * pulse, Math.PI * 1.15, Math.PI * 1.45); c.stroke();
   }
-  const k = 1 / v.s, bw = 34, by = y - 36;
+  const bw = 40, by = y - 62;
   c.fillStyle = '#fff'; c.strokeStyle = INK; c.lineWidth = 1.6;
   pill(c, x - bw / 2 - 1.5, by - 1.5, bw + 3, 7); c.fill(); c.stroke();
   const hp = t.hp / t.maxHp;
   c.fillStyle = hp > .5 ? '#51cf66' : hp > .25 ? '#fcc419' : '#ff6b6b';
   if (hp > 0) { pill(c, x - bw / 2, by, Math.max(4, bw * hp), 4); c.fill(); }
-  c.font = `${12 * Math.max(1, k * .9)}px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'bottom';
-  c.lineWidth = 3; c.strokeStyle = '#fff'; c.strokeText(t.pl.name, x, by - 3); c.fillStyle = INK; c.fillText(t.pl.name, x, by - 3);
+  if (t.shieldMax) {
+    c.fillStyle = (SHIELDS[t.shieldTier] || SHIELDS[1]).color;
+    if (t.shield > 0) { pill(c, x - bw / 2, by + 5.5, Math.max(3, bw * t.shield / t.shieldMax), 3); c.fill(); }
+  }
+  // 이름표: 플레이어 색
+  const fs = 12 * Math.max(1, k * .9), ny = by - 4;
+  c.font = `${fs}px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'bottom';
+  const tw = c.measureText(t.pl.name).width + 10 * Math.max(1, k * .9);
+  c.fillStyle = t.pl.color; c.strokeStyle = INK; c.lineWidth = 1.4;
+  pill(c, x - tw / 2, ny - fs - 3, tw, fs + 4); c.fill(); c.stroke();
+  c.lineWidth = 3; c.strokeStyle = '#fff'; c.strokeText(t.pl.name, x, ny - 1); c.fillStyle = INK; c.fillText(t.pl.name, x, ny - 1);
   if (active) {
-    const ay = by - 22 * Math.max(1, k * .9) + Math.sin(b.now * 6) * 3;
+    const ay = ny - fs - 10 + Math.sin(b.now * 6) * 3;
     c.fillStyle = t.pl.color; c.strokeStyle = INK; c.lineWidth = 2;
     c.beginPath(); c.moveTo(x - 7, ay - 8); c.lineTo(x + 7, ay - 8); c.lineTo(x, ay); c.closePath(); c.fill(); c.stroke();
   }
+}
+
+// 무기마다 다른 탄 모양(조합 무기는 성질로 판단)
+function drawShot(c, p, now) {
+  const w = p.w, a = p.spin + now * 8;
+  c.save(); c.translate(p.x, p.y); c.lineJoin = 'round'; c.lineCap = 'round';
+  c.strokeStyle = INK; c.lineWidth = 1.8;
+  if (w.drone) {
+    c.rotate(Math.atan2(p.vy, p.vx) * .3);
+    c.fillStyle = '#495057'; c.beginPath(); c.roundRect ? c.roundRect(-7, -3, 14, 6, 3) : c.rect(-7, -3, 14, 6); c.fill(); c.stroke();
+    c.fillStyle = `rgba(200,210,220,${.5 + .4 * Math.sin(now * 60)})`;
+    ellipse(c, -7, -5, 6, 1.4); c.fill(); ellipse(c, 7, -5, 6, 1.4); c.fill();
+    c.fillStyle = Math.sin(now * 10) > 0 ? '#ff6b6b' : '#ffc9c9'; circle(c, 0, 0, 1.6); c.fill();
+  } else if (w.heal) {
+    c.fillStyle = '#ff8cc8'; c.beginPath(); c.moveTo(0, 6); c.bezierCurveTo(-9, -1, -4, -8, 0, -3); c.bezierCurveTo(4, -8, 9, -1, 0, 6); c.fill(); c.stroke();
+  } else if (w.teleport) {
+    c.fillStyle = '#b197fc'; circle(c, 0, 0, 5.5); c.fill(); c.stroke();
+    c.strokeStyle = '#fff'; c.lineWidth = 1.4; c.rotate(a);
+    for (let i = 0; i < 4; i++) { c.rotate(Math.PI / 2); line(c, 7, 0, 10, 0); }
+  } else if (w.knock) {
+    c.rotate(Math.atan2(p.vy, p.vx));
+    c.fillStyle = '#fff'; c.fillRect(-9, -3.5, 4, 7); c.strokeRect(-9, -3.5, 4, 7);
+    c.fillStyle = '#e03131'; ellipse(c, 0, 0, 6.5, 5.5); c.fill(); c.stroke(); ellipse(c, 1, -4.5, 2.6, 2); c.fill(); c.stroke();
+  } else if (w.bounces && w.burst) {
+    c.rotate(a); c.strokeStyle = INK; c.lineWidth = 6; c.beginPath(); c.arc(0, 3, 6, Math.PI * 1.1, Math.PI * 1.9); c.stroke();
+    c.strokeStyle = '#ffe066'; c.lineWidth = 3.6; c.stroke();
+  } else if (w.burst) {
+    c.rotate(a); c.fillStyle = '#51cf66'; circle(c, 0, 0, 6.5); c.fill(); c.stroke();
+    c.strokeStyle = '#2b8a3e'; c.lineWidth = 1.4; for (const dx of [-3, 0, 3]) line(c, dx, -5.5, dx, 5.5);
+  } else if (w.r >= 90) {
+    c.rotate(a * .3); c.fillStyle = '#ffd43b'; circle(c, 0, 0, w.r >= 150 ? 9 : 7); c.fill(); c.stroke();
+    c.fillStyle = INK;
+    for (let i = 0; i < 3; i++) { c.rotate(Math.PI * 2 / 3); c.beginPath(); c.moveTo(0, 0); c.arc(0, 0, w.r >= 150 ? 7 : 5.5, -.45, .45); c.closePath(); c.fill(); }
+    c.fillStyle = '#ffd43b'; circle(c, 0, 0, 1.6); c.fill();
+  } else if (w.drill) {
+    c.rotate(Math.atan2(p.vy, p.vx)); c.fillStyle = '#a0785a'; ellipse(c, 0, 0, 6.5, 5); c.fill(); c.stroke();
+    c.fillStyle = '#ffa8c5'; circle(c, 6.5, 0, 1.8); c.fill(); c.fillStyle = INK; circle(c, 2.5, -2, .9); c.fill();
+  } else if (w.bomblets && w.radial) {
+    c.rotate(a); c.fillStyle = '#ff8cc8'; star(c, 0, 0, 7); c.stroke();
+  } else if (w.gravK === 0) {
+    const sp = Math.hypot(p.vx, p.vy) || 1, dx = -p.vx / sp * 18, dy = -p.vy / sp * 18;
+    c.strokeStyle = 'rgba(255,77,109,.5)'; c.lineWidth = 8; line(c, dx, dy, 0, 0);
+    c.strokeStyle = '#fff'; c.lineWidth = 3; line(c, dx, dy, 0, 0);
+  } else {
+    c.fillStyle = w.hops ? '#868e96' : '#ffd43b'; circle(c, 0, 0, 5.5); c.fill(); c.stroke();
+    c.fillStyle = '#fff'; circle(c, -1.6, -1.6, 1.6); c.fill();
+  }
+  c.restore();
 }
 
 // 조준 화살표: 방향 = 각도, 길이 = 파워
@@ -239,7 +407,8 @@ export function render(c, b, v, dpr) {
     }
     if (!cur.pl.cpu) drawArrow(c, cur, v);
   }
-  b.tanks.forEach(t => drawTank(c, b, t, t === cur && b.state === 'aim', v));
+  b.tanks.filter(t => t.dead).forEach(t => drawTank(c, b, t, false, v)); // 부서진 탱크는 뒤에
+  b.tanks.filter(t => !t.dead).forEach(t => drawTank(c, b, t, t === cur && b.state === 'aim', v));
   for (const p of b.projs) {
     const tr = p.trail, n = tr.length;
     for (let i = Math.max(0, n - 24); i < n; i += 2) {
@@ -247,13 +416,37 @@ export function render(c, b, v, dpr) {
       c.fillStyle = p.drilling !== null ? `rgba(120,90,60,${a * .6})` : `rgba(255,255,255,${a * .9})`;
       c.beginPath(); c.arc(tr[i][0], tr[i][1], 1.5 + a * 2.5, 0, TAU); c.fill();
     }
-    const big = p.w.r > 60;
-    c.fillStyle = big ? '#ff6b6b' : '#ffd43b'; c.strokeStyle = INK; c.lineWidth = 2;
-    c.beginPath(); c.arc(p.x, p.y, big ? 7 : 5, 0, TAU); c.fill(); c.stroke();
-    c.fillStyle = '#fff'; c.beginPath(); c.arc(p.x - 1.5, p.y - 1.5, 1.6, 0, TAU); c.fill();
+    drawShot(c, p, b.now);
   }
   for (const o of b.booms) {
     const k = o.t / o.dur, e = 1 - (1 - k) ** 3;
+    if (o.heal) { // 하트가 퐁퐁
+      c.globalAlpha = 1 - k;
+      c.fillStyle = 'rgba(105,219,124,.25)'; circle(c, o.x, o.y, o.r * (.4 + .6 * e)); c.fill();
+      for (let i = 0; i < 6; i++) {
+        const a = i / 6 * TAU, hx = o.x + Math.cos(a) * o.r * .55 * e, hy = o.y - 25 * e - Math.sin(a) * o.r * .25;
+        c.fillStyle = '#ff8cc8'; c.strokeStyle = INK; c.lineWidth = 1.2;
+        c.beginPath(); c.moveTo(hx, hy + 5); c.bezierCurveTo(hx - 7, hy - 1, hx - 3, hy - 7, hx, hy - 2.5); c.bezierCurveTo(hx + 3, hy - 7, hx + 7, hy - 1, hx, hy + 5); c.fill(); c.stroke();
+      }
+      c.globalAlpha = 1; continue;
+    }
+    if (o.tele) { // 보라색 고리와 반짝이
+      c.globalAlpha = 1 - k; c.strokeStyle = '#9775fa'; c.lineWidth = 4;
+      circle(c, o.x, o.y, o.r * e); c.stroke();
+      c.fillStyle = '#e5dbff';
+      for (let i = 0; i < 8; i++) { const a = i / 8 * TAU + k * 3; star(c, o.x + Math.cos(a) * o.r * .8 * e, o.y + Math.sin(a) * o.r * .8 * e, 3.5); }
+      c.globalAlpha = 1; continue;
+    }
+    if (o.r >= 90) { // 핵: 화면이 하얗게 번쩍, 버섯구름
+      if (k < .45) { c.fillStyle = `rgba(255,250,225,${(1 - k / .45) * .6})`; c.fillRect(b.cam.x - 200, v.yTop, v.vw + 400, v.h / s + 200); }
+      const top = o.y - o.r * (.4 + 1.1 * e), cr = o.r * (.35 + .25 * e);
+      c.globalAlpha = Math.min(1, 1.6 - k * 1.6);
+      c.fillStyle = '#ffd8a8'; c.fillRect(o.x - cr * .28, top, cr * .56, o.y - top);
+      for (const [dx, dy, rr] of [[0, 0, 1], [-.7, .25, .65], [.7, .25, .65], [-.35, -.35, .6], [.35, -.35, .6]]) {
+        c.fillStyle = dy < 0 ? '#fff4e6' : '#ffc078'; circle(c, o.x + dx * cr, top + dy * cr, cr * rr); c.fill();
+      }
+      c.globalAlpha = 1;
+    }
     if (o.dirt) {
       c.fillStyle = `rgba(200,150,100,${.6 * (1 - k)})`;
       for (let i = 0; i < 6; i++) { const a = i / 6 * TAU; c.beginPath(); c.arc(o.x + Math.cos(a) * o.r * .6 * e, o.y + Math.sin(a) * o.r * .4 * e, o.r * .35, 0, TAU); c.fill(); }
@@ -268,7 +461,7 @@ export function render(c, b, v, dpr) {
       c.beginPath(); c.arc(o.x + Math.cos(a) * d, o.y + Math.sin(a) * d * .8, o.r * .28 * (1 - k * .5), 0, TAU); c.fill(); c.stroke();
     }
     if (o.r >= 22 && k < .85) {
-      const word = POW[Math.abs(Math.round(o.x + o.y)) % POW.length], fs = 14 + o.r * .45;
+      const word = o.r >= 90 ? '콰콰쾅!!' : POW[Math.abs(Math.round(o.x + o.y)) % POW.length], fs = Math.min(80, 14 + o.r * .45);
       c.save(); c.translate(o.x, o.y - o.r * .5 - 12 * e); c.rotate(-.12); c.scale(.7 + .5 * e, .7 + .5 * e);
       c.font = `${fs}px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'middle';
       c.lineWidth = 6; c.strokeStyle = INK; c.strokeText(word, 0, 0);

@@ -1,9 +1,9 @@
 import { ECON, W, DEG, BODY, PLAYER_COLORS, PLAYER_NAMES, MAX_LEVEL, COMBO_FEE } from './config.js';
-import { WEAPONS, BASE_ORDER, weaponStats, upgradeCost, upgradeNote, statBits, comboId, isCombo } from './data/weapons.js';
+import { WEAPONS, BASE_ORDER, BASIC, weaponStats, upgradeCost, upgradeNote, statBits, comboId, isCombo } from './data/weapons.js';
 import { TANKS, TANK_ORDER } from './data/tanks.js';
-import { ITEMS, ITEM_ORDER } from './data/items.js';
+import { ITEMS, ITEM_ORDER, SHIELDS } from './data/items.js';
 import { Battle, ARROW } from './battle.js';
-import { render, drawCritter, viewFor } from './render.js';
+import { render, drawVehicle, viewFor } from './render.js';
 import { cpuShop } from './ai.js';
 import { ensureAudio, toggleSound, sfx } from './audio.js';
 
@@ -14,8 +14,14 @@ const OFF = 'off';
 const CTRL = [['0', '사람'], ['1', '컴퓨터 · 쉬움'], ['2', '컴퓨터 · 보통'], ['3', '컴퓨터 · 어려움'], [OFF, '불참']];
 const randomTank = () => TANK_ORDER[Math.floor(Math.random() * TANK_ORDER.length)];
 
-const setup = PLAYER_NAMES.map((name, i) => ({ name, ctrl: i === 0 ? '0' : '2', tank: i === 0 ? 'cannon' : randomTank() }));
-const game = { players: [], round: 0, rounds: 3, battle: null, shopIdx: 0, combo: ['cluster', 'drill'], fast: 1 };
+// 처음엔 여덟 나라를 하나씩, 나머지 두 자리는 무작위. 이름은 고른 나라의 지도자(직접 고치면 그대로 둔다).
+const setup = PLAYER_NAMES.map((_, i) => {
+  const tank = TANK_ORDER[i] || randomTank();
+  return { name: TANKS[tank].leader, autoName: true, ctrl: i === 0 ? '0' : '2', tank };
+});
+// 같은 지도자가 두 번 나오면 뒤쪽은 '2호'
+setup.forEach((s, i) => { if (setup.slice(0, i).some(o => o.name === s.name)) s.name += ' 2호'; });
+const game = { players: [], round: 0, rounds: 3, battle: null, shopIdx: 0, combo: ['split3', 'mole'], fast: 1 };
 window.game = game; // 디버깅용 핸들
 
 function show(id) {
@@ -40,7 +46,7 @@ function renderSetup() {
       <i class="dot" style="background:${PLAYER_COLORS[i]}"></i>
       <input id="name${i}" data-i="${i}" data-f="name" maxlength="8" value="${esc(s.name)}" aria-label="${i + 1}번 이름">
       <select id="ctrl${i}" data-i="${i}" data-f="ctrl" aria-label="${i + 1}번 참가 방식">${CTRL.map(([v, l]) => `<option value="${v}"${v === s.ctrl ? ' selected' : ''}>${l}</option>`).join('')}</select>
-      <select id="tank${i}" data-i="${i}" data-f="tank" aria-label="${i + 1}번 탱크">${TANK_ORDER.map(id => `<option value="${id}"${id === s.tank ? ' selected' : ''}>${TANKS[id].name}</option>`).join('')}</select>
+      <select id="tank${i}" data-i="${i}" data-f="tank" aria-label="${i + 1}번 탱크">${TANK_ORDER.map(id => `<option value="${id}"${id === s.tank ? ' selected' : ''}>${TANKS[id].short} ${TANKS[id].tank}</option>`).join('')}</select>
     </div>`).join('');
   updateRoster();
 }
@@ -58,23 +64,27 @@ function updateRoster() {
 function renderTankGuide() {
   $('tankGuide').innerHTML = TANK_ORDER.map(id => {
     const t = TANKS[id];
-    const bar = v => `<span class="sbar"><i style="width:${Math.round(Math.min(100, v))}%"></i></span>`;
     return `<div class="tcard">
-      <canvas width="160" height="100" data-tank="${id}" aria-hidden="true"></canvas>
-      <span class="tname">${t.name}<small>${t.role}</small></span>
-      <span class="stats"><span>체력</span>${bar(t.hp / 1.25)}<span>기동</span>${bar(t.move / 1.4 * 100)}<span>장갑</span>${bar(10 + t.armor * 900)}</span>
-      <span class="sig">${WEAPONS[t.sig[0]].name} <span class="dim">·</span> 특기 ${WEAPONS[t.sig[1]].name}</span>
+      <canvas width="240" height="170" data-tank="${id}" aria-hidden="true"></canvas>
+      <span class="tname">${t.tank}<small>${t.nation}</small></span>
+      <span class="sig">탑승: ${t.leader}</span>
     </div>`;
   }).join('');
-  $('tankGuide').querySelectorAll('canvas').forEach((c, i) => {
-    const g = c.getContext('2d'); g.scale(2, 2);
-    drawCritter(g, c.dataset.tank, PLAYER_COLORS[i], 34, 44, 40);
+  $('tankGuide').querySelectorAll('canvas').forEach(c => {
+    const g = c.getContext('2d'); g.scale(3, 3);
+    drawVehicle(g, c.dataset.tank, 40, 54, 35, { t: 0 });
   });
 }
-$('roster').addEventListener('input', e => { const { i, f } = e.target.dataset; if (f) setup[+i][f] = e.target.value; });
-$('roster').addEventListener('change', e => { const { i, f } = e.target.dataset; if (f) { setup[+i][f] = e.target.value; if (f === 'ctrl') updateRoster(); } });
+$('roster').addEventListener('input', e => { const { i, f } = e.target.dataset; if (f) { setup[+i][f] = e.target.value; if (f === 'name') setup[+i].autoName = false; } });
+$('roster').addEventListener('change', e => {
+  const { i, f } = e.target.dataset, s = setup[+i];
+  if (!f) return;
+  s[f] = e.target.value;
+  if (f === 'ctrl') updateRoster();
+  if (f === 'tank' && s.autoName) { s.name = TANKS[s.tank].leader; $('name' + i).value = s.name; }
+});
 $('allCpu').addEventListener('click', () => { setup.forEach((s, i) => { if (i > 0 || s.ctrl === OFF) s.ctrl = '2'; }); renderSetup(); });
-$('shuffleTanks').addEventListener('click', () => { setup.forEach(s => { s.tank = randomTank(); }); renderSetup(); });
+$('shuffleTanks').addEventListener('click', () => { setup.forEach(s => { s.tank = randomTank(); if (s.autoName) s.name = TANKS[s.tank].leader; }); renderSetup(); });
 $('start').addEventListener('click', () => {
   ensureAudio();
   const slots = setup.map((s, i) => ({ ...s, slot: i })).filter(s => s.ctrl !== OFF);
@@ -82,7 +92,7 @@ $('start').addEventListener('click', () => {
   game.players = slots.map((s, i) => ({
     id: i, name: s.name.trim() || PLAYER_NAMES[s.slot], color: PLAYER_COLORS[s.slot], tank: s.tank, cpu: +s.ctrl,
     money: ECON.start, wins: 0, totalDealt: 0, totalKills: 0,
-    inventory: {}, upgrades: {}, recipes: [], items: { repair: 0, shield: 0, fuel: 0 },
+    inventory: {}, upgrades: {}, recipes: [], items: { repair: 0, fuel: 0 }, shieldNext: 0,
   }));
   game.round = 0; game.rounds = +$('rounds').value;
   goShop(0);
@@ -99,30 +109,31 @@ function renderShop() {
   const pl = game.players[game.shopIdx], type = TANKS[pl.tank];
   $('shopChip').style.background = pl.color;
   $('shopName').textContent = pl.name;
-  $('shopTank').textContent = `${type.name} · ${type.role}`;
+  $('shopTank').textContent = `${type.nation} · ${type.tank}`;
   $('shopGold').textContent = pl.money + 'G';
   $('shopRound').textContent = `라운드 ${game.round + 1} 준비`;
   const nextHuman = game.players.slice(game.shopIdx + 1).find(p => !p.cpu);
-  $('shopNext').textContent = nextHuman ? `완료하면 ${nextHuman.name}의 상점으로 넘어갑니다. CPU는 알아서 장을 봅니다.` : '완료하면 전투가 시작됩니다.';
+  $('shopNext').textContent = nextHuman ? `완료하면 ${nextHuman.name}의 상점으로 넘어갑니다. 컴퓨터는 알아서 장을 봅니다.` : '완료하면 전투가 시작됩니다.';
   $('shopWeapons').innerHTML = BASE_ORDER.map(id => weaponRow(pl, type, id)).join('');
   $('shopCombos').innerHTML = pl.recipes.length
     ? pl.recipes.map(id => comboRow(pl, id)).join('')
     : '<p class="hint empty">아직 등록한 조합법이 없습니다. 조합대에서 두 무기를 골라 등록하세요.</p>';
   $('shopItems').innerHTML = ITEM_ORDER.map(id => itemRow(pl, id)).join('');
+  $('shopShields').innerHTML = SHIELDS.map((S, tier) => S ? shieldRow(pl, S, tier) : '').join('');
   renderComboBench(pl);
 }
 const pipsHtml = lv => Array.from({ length: MAX_LEVEL }, (_, k) => `<i class="${k < lv ? 'on' : ''}"></i>`).join('');
 function weaponRow(pl, type, id) {
-  const w = WEAPONS[id], lv = pl.upgrades[id] || 0, s = weaponStats(id, pl.upgrades), sig = type.sig.indexOf(id), own = pl.inventory[id] || 0;
-  const tag = sig === 0 ? '<span class="tag">기본 무장</span>' : sig === 1 ? `<span class="tag">특기 · ${type.cd}턴 대기</span>` : '';
-  const buy = sig === 0
+  const w = WEAPONS[id], lv = pl.upgrades[id] || 0, s = weaponStats(id, pl.upgrades), basic = id === BASIC, own = pl.inventory[id] || 0;
+  const tag = basic ? '<span class="tag">기본 무장</span>' : '';
+  const buy = basic
     ? '<span class="own">무제한</span>'
     : `<span class="own">${own ? '보유 ' + own : ''}</span><button type="button" data-buy="${id}"${pl.money < w.price ? ' disabled' : ''}>${w.pack}발 · ${w.price}G</button>`;
   const cost = upgradeCost(id, lv);
   const up = lv >= MAX_LEVEL
     ? '<button type="button" disabled>최대 강화</button>'
     : `<button type="button" data-up="${id}"${pl.money < cost ? ' disabled' : ''}>강화 Lv${lv + 1} · ${cost}G</button>`;
-  return `<div class="wrow${sig >= 0 ? ' mine' : ''}">
+  return `<div class="wrow${basic ? ' mine' : ''}">
     <div class="wmain">
       <div class="wtitle"><b>${w.name}</b><span class="pips" role="img" aria-label="강화 ${lv}단계">${pipsHtml(lv)}</span>${tag}</div>
       <p class="wdesc">${w.desc}</p>
@@ -148,6 +159,13 @@ function itemRow(pl, id) {
   return `<div class="wrow">
     <div class="wmain"><div class="wtitle"><b>${it.name}</b></div><p class="wdesc">${it.desc}</p></div>
     <div class="wact"><span class="own">${own ? '보유 ' + own : ''}</span><button type="button" data-item="${id}"${pl.money < it.price ? ' disabled' : ''}>${it.price}G</button></div>
+  </div>`;
+}
+function shieldRow(pl, S, tier) {
+  const on = pl.shieldNext === tier;
+  return `<div class="wrow">
+    <div class="wmain"><div class="wtitle"><b><i class="dot" style="background:${S.color}"></i>${S.name}</b></div><p class="wdesc">다음 라운드 시작 때 방어막 ${S.hp}이 생겨 체력보다 먼저 피해를 막습니다.</p></div>
+    <div class="wact"><span class="own">${on ? '장착 예정' : ''}</span><button type="button" data-shield="${tier}"${on || pl.money < S.price ? ' disabled' : ''}>${S.price}G</button></div>
   </div>`;
 }
 function renderComboBench(pl) {
@@ -179,7 +197,7 @@ $('comboMake').addEventListener('click', () => {
   ($('shopCombos').querySelector(`[data-buy="${id}"]:not(:disabled)`) || $('comboA')).focus();
 });
 $('scrShop').addEventListener('click', e => {
-  const b = e.target.closest('button[data-buy],button[data-up],button[data-item]');
+  const b = e.target.closest('button[data-buy],button[data-up],button[data-item],button[data-shield]');
   if (!b || b.disabled) return;
   const pl = game.players[game.shopIdx];
   let sel;
@@ -193,6 +211,11 @@ $('scrShop').addEventListener('click', e => {
     if (lv >= MAX_LEVEL || pl.money < cost) return;
     pl.money -= cost; pl.upgrades[id] = lv + 1;
     sel = `[data-up="${id}"]`;
+  } else if (b.dataset.shield) {
+    const tier = +b.dataset.shield, S = SHIELDS[tier];
+    if (pl.money < S.price || pl.shieldNext === tier) return;
+    pl.money -= S.price; pl.shieldNext = tier; // 더 낮은/높은 단계로 바꾸면 그것으로 교체
+    sel = '#shopDone';
   } else {
     const id = b.dataset.item, it = ITEMS[id];
     if (pl.money < it.price) return;
@@ -260,8 +283,8 @@ function hud(b) {
   hudKey = key;
   $('chip').style.background = t.pl.color;
   $('pName').textContent = t.pl.name;
-  $('pType').textContent = `${t.type.name} · ${t.pl.cpu ? '컴퓨터' : '사람'}${t.shield ? ' · 방어막' : ''}`;
-  $('hpVal').textContent = t.hp; $('hpBar').style.width = (t.hp / t.maxHp * 100) + '%';
+  $('pType').textContent = `${t.type.short} ${t.type.tank} · ${t.pl.cpu ? '컴퓨터' : '사람'}`;
+  $('hpVal').textContent = t.shield > 0 ? `${t.hp}+${t.shield}` : t.hp; $('hpBar').style.width = (t.hp / t.maxHp * 100) + '%';
   if (document.activeElement !== $('angVal')) $('angVal').value = fmt(t.angle);
   if (document.activeElement !== $('powVal')) $('powVal').value = fmt(t.power);
   $('fuelBar').style.width = (t.fuel / t.fuelMax * 100) + '%';

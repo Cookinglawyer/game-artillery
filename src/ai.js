@@ -1,7 +1,6 @@
 import { W, H, G, SPEED, DEG, BODY, MAX_LEVEL, COMBO_FEE, rand, clamp } from './config.js';
-import { WEAPONS, BASE_ORDER, weaponStats, upgradeCost, comboId } from './data/weapons.js';
-import { TANKS } from './data/tanks.js';
-import { ITEMS } from './data/items.js';
+import { WEAPONS, BASE_ORDER, BASIC, weaponStats, upgradeCost, comboId } from './data/weapons.js';
+import { ITEMS, SHIELDS } from './data/items.js';
 
 // 지형과 바람을 그대로 써서 착탄 지점을 계산한다(튕김과 굴착까지 따라간다, 분열은 무시).
 function simulate(b, t, a, pw, w, target) {
@@ -56,9 +55,8 @@ export function plan(b, t) {
   const target = foes[0].o;
   let item = null;
   if (t.hp < t.maxHp * .5 && t.pl.items.repair > 0) item = 'repair';
-  else if (!t.shield && t.pl.items.shield > 0 && Math.random() < .5) item = 'shield';
 
-  const av = b.available(t).filter(a => { const w = b.stats(t, a.id); return a.ok && w.dmg > 0; });
+  const av = b.available(t).filter(a => { const w = b.stats(t, a.id); return a.ok && w.dmg > 0 && !w.teleport && !w.heal; });
   let weapon = av[0].id;
   const extra = av.slice(1);
   if (extra.length && Math.random() < .6) weapon = extra[Math.floor(Math.random() * extra.length)].id;
@@ -70,18 +68,17 @@ export function plan(b, t) {
   return { a: clamp(best.a + rand(-na, na), 0, 180), p: clamp(best.p + rand(-np, np), 5, 100), weapon, item, wait: .2 };
 }
 
-// CPU 상점: 살 수 있는 선택지 중 가중치로 고르며, 120G 근처에서 일부는 저축한다.
+// CPU 상점: 싼 무기를 이것저것 담고, 가끔 강화·조합·방어막을 산다. 일부는 저축한다.
 export function cpuShop(pl) {
-  const type = TANKS[pl.tank];
   const options = () => {
     const list = [];
     for (const id of BASE_ORDER) {
       const w = WEAPONS[id], lv = pl.upgrades[id] || 0;
-      if (id !== type.sig[0] && !w.dirt) {
-        list.push({ cost: w.price, weight: id === 'nuke' ? 1 : id === 'shell' ? .5 : 2, go: () => { pl.inventory[id] = (pl.inventory[id] || 0) + w.pack; } });
+      if (id !== BASIC && w.dmg > 0) {
+        list.push({ cost: w.price, weight: id === 'nuke' ? .6 : id === 'babynuke' ? 1 : 2, go: () => { pl.inventory[id] = (pl.inventory[id] || 0) + w.pack; } });
       }
-      if (lv < MAX_LEVEL && (type.sig.includes(id) || pl.inventory[id] > 0)) {
-        list.push({ cost: upgradeCost(id, lv), weight: id === type.sig[0] ? 3 : 1.5, go: () => { pl.upgrades[id] = lv + 1; } });
+      if (lv < MAX_LEVEL && (id === BASIC || pl.inventory[id] > 0)) {
+        list.push({ cost: upgradeCost(id, lv), weight: id === BASIC ? 2 : 1, go: () => { pl.upgrades[id] = lv + 1; } });
       }
     }
     for (const id of pl.recipes) {
@@ -89,21 +86,22 @@ export function cpuShop(pl) {
       if (w.dmg > 0) list.push({ cost: w.price, weight: 2.5, go: () => { pl.inventory[id] = (pl.inventory[id] || 0) + w.pack; } });
     }
     if (pl.recipes.length < 3) {
-      const pool = BASE_ORDER.filter(id => !WEAPONS[id].dirt);
+      const pool = BASE_ORDER.filter(id => WEAPONS[id].dmg > 0 && id !== BASIC);
       const a = pool[Math.floor(Math.random() * pool.length)], c = pool[Math.floor(Math.random() * pool.length)];
       const id = comboId(a, c);
       if (a !== c && !pl.recipes.includes(id)) list.push({ cost: COMBO_FEE, weight: 1, go: () => { pl.recipes.push(id); } });
     }
-    if (pl.items.repair < 2) list.push({ cost: ITEMS.repair.price, weight: 3, go: () => { pl.items.repair++; } });
-    if (pl.items.shield < 1) list.push({ cost: ITEMS.shield.price, weight: 1.5, go: () => { pl.items.shield++; } });
+    if (pl.items.repair < 2) list.push({ cost: ITEMS.repair.price, weight: 2.5, go: () => { pl.items.repair++; } });
+    const tier = 1 + Math.floor(Math.random() * 3);
+    if (!pl.shieldNext) list.push({ cost: SHIELDS[tier].price, weight: 2, go: () => { pl.shieldNext = tier; } });
     return list.filter(o => o.cost <= pl.money);
   };
-  for (let guard = 0; guard < 20; guard++) {
+  for (let guard = 0; guard < 30; guard++) {
     const opts = options();
     if (!opts.length) break;
     let r = Math.random() * opts.reduce((s, o) => s + o.weight, 0);
     const pick = opts.find(o => (r -= o.weight) < 0) || opts[0];
     pl.money -= pick.cost; pick.go();
-    if (pl.money < 120 && Math.random() < .5) break;
+    if (pl.money < 40 && Math.random() < .5) break;
   }
 }

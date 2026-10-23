@@ -1,12 +1,13 @@
 import { W, VIEW, H, G, SPEED, MAX_WIND, DEG, BODY, rand, clamp, shuffle } from './config.js';
 import { Terrain } from './terrain.js';
-import { BASE_ORDER, weaponStats } from './data/weapons.js';
-import { TANKS } from './data/tanks.js';
+import { BASE_ORDER, BASIC, weaponStats } from './data/weapons.js';
+import { TANKS, TANK_STATS } from './data/tanks.js';
+import { SHIELDS } from './data/items.js';
 import { sfx } from './audio.js';
 import { plan } from './ai.js';
 
 // 조준 화살표: 길이 = base + 파워 × perPower (월드 단위). 렌더러와 같이 쓴다.
-export const ARROW = { base: 30, perPower: 1.15 };
+export const ARROW = { base: 36, perPower: 1.15 };
 const EDGE = 110;
 
 // 한 라운드의 난타전. players는 라운드를 넘어 유지되는 플레이어 객체(돈, 인벤토리, 강화, 조합법)이고
@@ -31,10 +32,11 @@ export class Battle {
   }
 
   makeTank(pl, x) {
-    const type = TANKS[pl.tank];
-    return { pl, type, x, y: this.terrain.surfaceY(x) - 1, hp: type.hp, maxHp: type.hp,
-      angle: x < W / 2 ? 55 : 125, power: 60, fuel: 100, fuelMax: 100, sel: type.sig[0], cd: 0,
-      shield: false, itemUsed: false, dead: false, falling: false, vy: 0, fallFrom: 0, moveAcc: 0,
+    const type = TANKS[pl.tank], tier = pl.shieldNext || 0, sh = SHIELDS[tier];
+    pl.shieldNext = 0; // 방어막은 이번 라운드에 쓰고 사라진다
+    return { pl, type, x, y: this.terrain.surfaceY(x) - 1, hp: TANK_STATS.hp, maxHp: TANK_STATS.hp,
+      angle: x < W / 2 ? 55 : 125, power: 60, fuel: 100, fuelMax: 100, sel: BASIC,
+      shield: sh ? sh.hp : 0, shieldMax: sh ? sh.hp : 0, shieldTier: tier, itemUsed: false, dead: false, falling: false, vy: 0, fallFrom: 0, moveAcc: 0,
       lastTrail: null, lastHitBy: null, ai: null, think: 0, dealt: 0, kills: 0,
       hurtT: 9, blinkT: rand(1, 4) }; // 표정 애니메이션용
   }
@@ -45,14 +47,11 @@ export class Battle {
   stats(t, id) { return weaponStats(id, t.pl.upgrades); }
   tip(t, a) { const r = a * DEG; return [t.x + Math.cos(r) * BODY.barrel, t.y - BODY.pivot - Math.sin(r) * BODY.barrel]; }
 
-  // 이번 턴에 고를 수 있는 무기 목록. label은 HUD에 표시할 남은 수량/대기 턴.
+  // 이번 턴에 고를 수 있는 무기 목록. 기본탄은 무제한, 나머지는 산 만큼.
   available(t) {
-    const [s0, s1] = t.type.sig, inv = t.pl.inventory;
-    const list = [{ id: s0, label: '∞', ok: true }];
-    const n1 = inv[s1] || 0;
-    list.push({ id: s1, label: t.cd > 0 ? (n1 ? String(n1) : `${t.cd}턴`) : '특기', ok: t.cd === 0 || n1 > 0, special: true });
+    const inv = t.pl.inventory, list = [{ id: BASIC, label: '∞', ok: true }];
     for (const id of [...BASE_ORDER, ...t.pl.recipes]) {
-      if (id !== s0 && id !== s1 && inv[id] > 0) list.push({ id, label: String(inv[id]), ok: true });
+      if (id !== BASIC && inv[id] > 0) list.push({ id, label: String(inv[id]), ok: true });
     }
     return list;
   }
@@ -63,22 +62,15 @@ export class Battle {
     const i = av.findIndex(a => a.id === t.sel);
     t.sel = av[(i + d + av.length) % av.length].id;
   }
-  consume(t, id) {
-    const [s0, s1] = t.type.sig;
-    if (id === s0) return;
-    if (id === s1 && t.cd === 0) { t.cd = t.type.cd + 1; return; }
-    t.pl.inventory[id]--;
-  }
+  consume(t, id) { if (id !== BASIC) t.pl.inventory[id]--; }
 
   useItem(t, id) {
     const items = t.pl.items;
     if (this.state !== 'aim' || t.itemUsed || !(items[id] > 0)) return false;
     if (id === 'repair' && t.hp >= t.maxHp) return false;
-    if (id === 'shield' && t.shield) return false;
     items[id]--; t.itemUsed = true;
-    if (id === 'repair') { const h = Math.min(35, t.maxHp - t.hp); t.hp += h; this.float(t.x, t.y - 46, '+' + h, '#7be38a'); }
-    if (id === 'shield') { t.shield = true; this.float(t.x, t.y - 46, '방어막', '#9be7ff'); }
-    if (id === 'fuel') { t.fuel += 100; t.fuelMax = t.fuel; this.float(t.x, t.y - 46, '연료 +100', '#f1e4cf'); }
+    if (id === 'repair') { const h = Math.min(35, t.maxHp - t.hp); t.hp += h; this.float(t.x, t.y - 60, '+' + h, '#7be38a'); }
+    if (id === 'fuel') { t.fuel += 100; t.fuelMax = t.fuel; this.float(t.x, t.y - 60, '연료 +100', '#f1e4cf'); }
     sfx('item');
     return true;
   }
@@ -109,8 +101,7 @@ export class Battle {
     const t = this.cur;
     this.state = 'aim'; this.settleT = 0; this.cam.manual = false; this.lastBoom = null;
     t.fuel = t.fuelMax = 100; t.itemUsed = false; t.ai = null; t.think = .45; t.moveAcc = 0;
-    if (t.cd > 0) t.cd--;
-    if (!this.canUse(t, t.sel)) t.sel = t.type.sig[0];
+    if (!this.canUse(t, t.sel)) t.sel = BASIC;
     this.wind = clamp(this.wind + rand(-18, 18), -MAX_WIND, MAX_WIND);
   }
   endTurn() {
@@ -123,31 +114,39 @@ export class Battle {
   }
 
   /* ---------- 탱크 ---------- */
-  onGround(t) { return [-11, -6, 0, 6, 11].some(dx => this.terrain.isSolid(t.x + dx, t.y + 1)); }
+  onGround(t) { return [-18, -9, 0, 9, 18].some(dx => this.terrain.isSolid(t.x + dx, t.y + 1)); }
   blocked(x, y, dir) {
-    for (let k = 2; k <= 14; k += 3) if (this.terrain.isSolid(x + dir * 12, y - k)) return true;
+    for (let k = 2; k <= 20; k += 3) if (this.terrain.isSolid(x + dir * 20, y - k)) return true;
     return this.terrain.isSolid(x, y - 4);
   }
   tryMove(t, dir) {
     if (t.fuel <= 0 || t.falling) return;
     const nx = t.x + dir;
-    if (nx < 12 || nx > W - 12) return;
+    if (nx < 20 || nx > W - 20) return;
     for (let climb = 0; climb <= 5; climb++) {
       if (!this.blocked(nx, t.y - climb, dir)) {
-        t.x = nx; t.y -= climb; t.fuel = Math.max(0, t.fuel - .55 / t.type.move);
+        t.x = nx; t.y -= climb; t.fuel = Math.max(0, t.fuel - .55 / TANK_STATS.move);
         return;
       }
     }
   }
   hurt(t, dmg, src) {
     if (t.dead) return;
-    dmg = Math.round(dmg * (1 - t.type.armor));
-    if (t.shield && dmg > 0) { dmg = Math.ceil(dmg / 2); t.shield = false; }
     if (dmg <= 0) return;
-    t.hp = Math.max(0, t.hp - dmg);
-    if (src && src !== t) { src.dealt += dmg; t.lastHitBy = src; }
+    if (src && src !== t) t.lastHitBy = src;
     t.hurtT = 0;
-    this.float(t.x, t.y - 46, '-' + dmg, t.pl.color);
+    // 방어막이 먼저 막는다
+    if (t.shield > 0) {
+      const a = Math.min(t.shield, dmg);
+      t.shield -= a; dmg -= a;
+      if (src && src !== t) src.dealt += a;
+      this.float(t.x + 16, t.y - 66, '-' + a, '#4dabf7');
+      if (!t.shield) { this.float(t.x, t.y - 80, '방어막 깨짐!', '#4dabf7'); sfx('pop'); }
+      if (dmg <= 0) return;
+    }
+    t.hp = Math.max(0, t.hp - dmg);
+    if (src && src !== t) src.dealt += dmg;
+    this.float(t.x, t.y - 60, '-' + dmg, t.pl.color);
     if (t.hp <= 0) this.kill(t, true);
   }
   kill(t, blast) {
@@ -186,12 +185,23 @@ export class Battle {
       this.projs.push(p);
       if (i === n >> 1) t.lastTrail = p.trail;
     }
-    if (!this.canUse(t, t.sel)) t.sel = t.type.sig[0];
+    if (!this.canUse(t, t.sel)) t.sel = BASIC;
     this.state = 'fire'; this.settleT = 0; t.ai = null; this.cam.manual = false;
     sfx('fire');
   }
-  proj(x, y, vx, vy, w, owner, age = 0) {
-    return { x, y, vx, vy, w, owner, age, trail: [[x, y]], drilling: null, carveAcc: 0, bounces: w.bounces || 0 };
+  // child: 갈라지거나 다시 튀어 나온 탄(순간이동·조각 생성은 첫 탄만)
+  proj(x, y, vx, vy, w, owner, age = 0, child = false) {
+    return { x, y, vx, vy, w, owner, age, child, trail: [[x, y]], drilling: null, carveAcc: 0,
+      bounces: w.bounces || 0, hops: w.hops || 0, homingOn: false, spin: rand(0, 6) };
+  }
+  nearestFoe(p) {
+    let best = null, bd = 1e9;
+    for (const t of this.tanks) {
+      if (t.dead || t === p.owner) continue;
+      const d = Math.hypot(t.x - p.x, t.y - p.y);
+      if (d < bd) { bd = d; best = t; }
+    }
+    return best;
   }
   tankHit(p) {
     return this.tanks.find(t => !t.dead && !(t === p.owner && p.age < .25) &&
@@ -202,6 +212,7 @@ export class Battle {
   stepProj(p, dt) {
     const T = this.terrain, w = p.w;
     p.age += dt;
+    if (p.age > 14) { this.explode(p); return false; } // 빙빙 도는 드론 방지
     const n = Math.max(1, Math.ceil(Math.hypot(p.vx, p.vy) * dt / 2)), h = dt / n;
     for (let i = 0; i < n; i++) {
       if (p.drilling !== null) {
@@ -213,8 +224,21 @@ export class Battle {
         continue;
       }
       const px = p.x, py = p.y;
-      p.vx += this.wind * (w.windK ?? 1) * h;
-      p.vy += G * (w.gravK ?? 1) * h;
+      // 유도: 꼭대기를 지나면(드론은 조금 날아간 뒤) 가장 가까운 적 쪽으로 방향을 튼다
+      if (w.homing && (p.homingOn || (w.drone ? p.age > .45 : p.vy > 0 && p.age > .2))) {
+        p.homingOn = true;
+        const tg = this.nearestFoe(p);
+        if (tg) {
+          const cur = Math.atan2(p.vy, p.vx);
+          let d = Math.atan2(tg.y - 16 - p.y, tg.x - p.x) - cur;
+          while (d > Math.PI) d -= 2 * Math.PI;
+          while (d < -Math.PI) d += 2 * Math.PI;
+          const a = cur + clamp(d, -w.homing * h, w.homing * h), sp = Math.max(Math.hypot(p.vx, p.vy), w.drone ? 170 : 260);
+          p.vx = Math.cos(a) * sp; p.vy = Math.sin(a) * sp;
+        }
+      }
+      p.vx += this.wind * (w.windK ?? 1) * h * (p.homingOn ? .3 : 1);
+      p.vy += p.homingOn ? 0 : G * (w.gravK ?? 1) * h;
       p.x += p.vx * h; p.y += p.vy * h;
       if (p.x < -60 || p.x > W + 60 || p.y > H + 40) return false;
       if (w.bomblets && p.vy > 0 && p.age > .15) { this.split(p); return false; }
@@ -237,22 +261,73 @@ export class Battle {
     return true;
   }
   split(p) {
-    const w = p.w, n = w.bomblets, sub = { ...w, bomblets: 0, count: 1 };
+    const w = p.w, n = w.bomblets, sub = { ...w, bomblets: 0, radial: false, count: 1 };
     for (let i = 0; i < n; i++) {
-      const k = n > 1 ? i / (n - 1) - .5 : 0;
-      this.spawned.push(this.proj(p.x, p.y, p.vx + k * 150, p.vy - 30, sub, p.owner, 1));
+      let vx, vy;
+      if (w.radial) { const a = i / n * Math.PI * 2; vx = p.vx * .3 + Math.cos(a) * 170; vy = p.vy * .3 + Math.sin(a) * 170 - 40; }
+      else { const k = n > 1 ? i / (n - 1) - .5 : 0; vx = p.vx + k * 150; vy = p.vy - 30; }
+      this.spawned.push(this.proj(p.x, p.y, vx, vy, sub, p.owner, 1, true));
     }
     this.puff(p.x, p.y); sfx('pop');
   }
-  explode(p) { this.blast(p.x, p.y, p.w.r, p.w.dmg, p.owner, p.w.dirt); }
-  blast(x, y, r, dmg, src, dirt = false) {
-    this.lastBoom = { x, y };
-    if (dmg > 0) {
-      for (const t of this.tanks) {
-        if (t.dead) continue;
-        const d = Math.hypot(t.x - x, t.y - 10 - y), reach = r + 14;
-        if (d < reach) this.hurt(t, Math.round(dmg * (1 - Math.max(0, d - 8) / reach)), src);
+  explode(p) {
+    const w = p.w;
+    if (w.teleport && !p.child) this.teleport(p.owner, p.x);
+    if (w.heal) this.healBlast(p.x, p.y, w.r, w.heal);
+    else if (w.r > 0) this.blast(p.x, p.y, w.r, w.dmg, p.owner, w.dirt, w.knock);
+    // 떨어진 자리에서 작은 조각들이 위로 튀어 오른다(수박씨·바나나)
+    if (w.burst && !p.child) {
+      const sub = { ...w, burst: 0, bomblets: 0, hops: 0, bounces: 0, teleport: false, r: Math.round(w.r * .6), dmg: Math.round(w.dmg * .55) };
+      for (let i = 0; i < w.burst; i++) {
+        const a = rand(200, 340) * DEG, s = rand(150, 260);
+        this.spawned.push(this.proj(p.x, p.y - 6, Math.cos(a) * s, Math.sin(a) * s, sub, p.owner, .3, true));
       }
+    }
+    // 벙커버스터: 터진 뒤 아무 방향(위쪽)으로 다시 튀어 나간다
+    if (p.hops > 0) {
+      const a = rand(30, 150) * DEG, s = rand(230, 330);
+      const q = this.proj(p.x, p.y - 6, Math.cos(a) * s, -Math.sin(a) * s, w, p.owner, .3, true);
+      q.hops = p.hops - 1;
+      this.spawned.push(q);
+    }
+  }
+  healBlast(x, y, r, amt) {
+    this.lastBoom = { x, y };
+    for (const t of this.tanks) {
+      if (t.dead || Math.hypot(t.x - x, t.y - 16 - y) >= r + 20) continue;
+      const h = Math.min(amt, t.maxHp - t.hp);
+      if (h > 0) { t.hp += h; this.float(t.x, t.y - 60, '+' + h, '#51cf66'); }
+    }
+    this.booms.push({ x, y, r, t: 0, dur: .9, heal: true });
+    sfx('item');
+  }
+  teleport(t, x) {
+    if (!t || t.dead) return;
+    x = clamp(x, 20, W - 20);
+    this.booms.push({ x: t.x, y: t.y - 16, r: 34, t: 0, dur: .6, tele: true });
+    t.x = x; t.y = this.terrain.surfaceY(Math.round(x)) - 1; t.falling = false; t.vy = 0;
+    this.booms.push({ x, y: t.y - 16, r: 34, t: 0, dur: .6, tele: true });
+    this.float(t.x, t.y - 66, '순간이동!', '#9775fa');
+    sfx('item');
+  }
+  // 펀치 글러브: 폭발 반대쪽으로 날려 보낸다(땅에 박히지 않게 위로 빼 준다)
+  push(t, dir, f, src) {
+    t.x = clamp(t.x + dir * f, 20, W - 20);
+    t.y -= f * .45;
+    while (t.y > -200 && this.terrain.isSolid(t.x, t.y - 4)) t.y -= 2;
+    if (src && src !== t) t.lastHitBy = src;
+    if (!t.falling) { t.falling = true; t.fallFrom = t.y; t.vy = 0; }
+    this.float(t.x, t.y - 66, '날아간다~', '#ff922b');
+  }
+  blast(x, y, r, dmg, src, dirt = false, knock = 0) {
+    this.lastBoom = { x, y };
+    for (const t of this.tanks) {
+      if (t.dead) continue;
+      const d = Math.hypot(t.x - x, t.y - 16 - y), reach = r + 20;
+      if (d >= reach) continue;
+      const k = 1 - Math.max(0, d - 10) / reach;
+      if (dmg > 0) this.hurt(t, Math.round(dmg * k), src);
+      if (knock && !t.dead) this.push(t, Math.sign(t.x - x) || 1, knock * (.4 + .6 * k), src);
     }
     if (dirt) {
       this.terrain.addDirt(x, y, r);
@@ -261,13 +336,13 @@ export class Battle {
       return;
     }
     this.terrain.carve(x, y, r); this.terrain.scorch(x, y, r);
-    this.booms.push({ x, y, r, t: 0, dur: .55 });
+    this.booms.push({ x, y, r, t: 0, dur: r >= 90 ? 1.6 : .55 });
     const n = 18 + r * .6;
     for (let i = 0; i < n; i++) {
       const a = rand(Math.PI * 1.05, Math.PI * 1.95), s = rand(80, 260) * (r / 30);
       this.parts.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: rand(.5, 1.2), color: Math.random() < .45 ? '#ffd43b' : this.terrain.scene.ground[1] });
     }
-    this.shake = Math.max(this.shake, r / 4);
+    this.shake = Math.max(this.shake, Math.min(18, r / 4));
     sfx('boom', r / 30);
   }
   puff(x, y) {
@@ -352,7 +427,7 @@ export class Battle {
     this.projs = live.concat(this.spawned); this.spawned = [];
     for (const d of this.deaths) {
       d.delay -= dt;
-      if (d.delay <= 0) { this.blast(d.t.x, d.t.y - 10, 34, 22, null); d.done = true; }
+      if (d.delay <= 0) { this.blast(d.t.x, d.t.y - 16, 40, 22, null); d.done = true; }
     }
     this.deaths = this.deaths.filter(d => !d.done);
     for (const b of this.booms) b.t += dt;

@@ -438,6 +438,22 @@ document.querySelectorAll('.menu-btn').forEach(btn => {
   });
 });
 
+/* ---------- 가로 화면 ---------- */
+// 휴대폰이면 전투에 들어갈 때 전체 화면 + 가로 고정을 시도한다(안드로이드 크롬 등).
+// 안 되는 곳(아이폰 사파리 등)은 세로일 때 '가로로 돌려 주세요' 안내를 띄운다.
+const touch = matchMedia('(pointer:coarse)').matches;
+async function goLandscape() {
+  if (!touch) return;
+  try {
+    if (!document.fullscreenElement && document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
+    await screen.orientation?.lock?.('landscape');
+  } catch (e) { /* 지원하지 않으면 안내 카드로 대신한다 */ }
+}
+['start', 'shopDone'].forEach(id => $(id).addEventListener('click', goLandscape));
+$('scrResult').addEventListener('click', e => { if (e.target.id === 'resultNext') goLandscape(); });
+$('rotateDismiss').addEventListener('click', () => { game.portraitOk = true; $('rotateHint').hidden = true; });
+function rotateHint() { $('rotateHint').hidden = !(touch && innerHeight > innerWidth && !game.portraitOk); }
+
 /* ---------- PWA ---------- */
 // 서비스 워커(오프라인 실행)와 설치 버튼. claude.ai 미리보기처럼 지원하지 않는 곳에서는 조용히 건너뛴다.
 try {
@@ -531,7 +547,7 @@ function frame(ts) {
   if (b) {
     const steps = b.cur.pl.cpu && b.state !== 'over' ? game.fast : 1;
     for (let i = 0; i < steps && game.battle === b; i++) b.update(dt);
-    sizeCanvas();
+    sizeCanvas(); rotateHint();
     render(ctx, b, view, dpr); hud(b); roster(b);
   }
   requestAnimationFrame(frame);

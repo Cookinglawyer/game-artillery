@@ -5,6 +5,9 @@ export const rand = (a, b) => a + Math.random() * (b - a);
 export const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 // 탱크 몸체: 충돌 판정 반폭·높이, 포신 회전축 높이, 포신 길이
 export const BODY = { hw: 24, h: 46, pivot: 19, barrel: 28 };
+// 폭발 크기: 무기의 반경(r)에 곱한다. 피해 범위·폭발 그림은 dmgK배, 땅 구덩이는 craterK배.
+// 구덩이까지 3배로 하면 몇 발 만에 지형이 거의 사라져서 따로 둔다.
+export const BLAST = { dmgK: 3, craterK: 1.5 };
 export const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 
 // 라운드 보상: 참가 + 피해량 × perDamage + 격파 + 순위(1~3위)

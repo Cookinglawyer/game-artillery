@@ -1,4 +1,4 @@
-import { W, VIEW, H, G, SPEED, MAX_WIND, DEG, BODY, rand, clamp, shuffle } from './config.js';
+import { W, VIEW, H, G, SPEED, MAX_WIND, DEG, BODY, BLAST, rand, clamp, shuffle } from './config.js';
 import { Terrain } from './terrain.js';
 import { BASE_ORDER, BASIC, weaponStats } from './data/weapons.js';
 import { TANKS, TANK_STATS } from './data/tanks.js';
@@ -293,6 +293,7 @@ export class Battle {
   }
   healBlast(x, y, r, amt) {
     this.lastBoom = { x, y };
+    r *= BLAST.dmgK;
     for (const t of this.tanks) {
       if (t.dead || Math.hypot(t.x - x, t.y - 16 - y) >= r + 20) continue;
       const h = Math.min(amt, t.maxHp - t.hp);
@@ -319,31 +320,33 @@ export class Battle {
     if (!t.falling) { t.falling = true; t.fallFrom = t.y; t.vy = 0; }
     this.float(t.x, t.y - 66, '날아간다~', '#ff922b');
   }
+  // r: 무기의 기본 반경. 피해는 r × dmgK까지, 구덩이는 r × craterK.
   blast(x, y, r, dmg, src, dirt = false, knock = 0) {
     this.lastBoom = { x, y };
+    const big = r * BLAST.dmgK, hole = r * BLAST.craterK;
     for (const t of this.tanks) {
       if (t.dead) continue;
-      const d = Math.hypot(t.x - x, t.y - 16 - y), reach = r + 20;
+      const d = Math.hypot(t.x - x, t.y - 16 - y), reach = big + 20;
       if (d >= reach) continue;
       const k = 1 - Math.max(0, d - 10) / reach;
       if (dmg > 0) this.hurt(t, Math.round(dmg * k), src);
       if (knock && !t.dead) this.push(t, Math.sign(t.x - x) || 1, knock * (.4 + .6 * k), src);
     }
     if (dirt) {
-      this.terrain.addDirt(x, y, r);
-      this.booms.push({ x, y, r, t: 0, dur: .5, dirt: true });
+      this.terrain.addDirt(x, y, hole);
+      this.booms.push({ x, y, r: hole, t: 0, dur: .5, dirt: true });
       this.shake = Math.max(this.shake, 4); sfx('boom', .5);
       return;
     }
-    this.terrain.carve(x, y, r); this.terrain.scorch(x, y, r);
-    this.booms.push({ x, y, r, t: 0, dur: r >= 90 ? 1.6 : .55 });
-    const n = 18 + r * .6;
+    this.terrain.carve(x, y, hole); this.terrain.scorch(x, y, hole);
+    this.booms.push({ x, y, r: big, base: r, nuke: r >= 90, t: 0, dur: r >= 90 ? 1.6 : .7 });
+    const n = Math.min(120, 24 + hole * .6);
     for (let i = 0; i < n; i++) {
-      const a = rand(Math.PI * 1.05, Math.PI * 1.95), s = rand(80, 260) * (r / 30);
+      const a = rand(Math.PI * 1.05, Math.PI * 1.95), s = rand(80, 260) * Math.min(4, hole / 30);
       this.parts.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: rand(.5, 1.2), color: Math.random() < .45 ? '#ffd43b' : this.terrain.scene.ground[1] });
     }
-    this.shake = Math.max(this.shake, Math.min(18, r / 4));
-    sfx('boom', r / 30);
+    this.shake = Math.max(this.shake, Math.min(20, big / 8));
+    sfx('boom', big / 50);
   }
   puff(x, y) {
     for (let i = 0; i < 8; i++) this.parts.push({ x, y, vx: rand(-80, 80), vy: rand(-140, -40), life: rand(.3, .6), color: '#ffffff' });

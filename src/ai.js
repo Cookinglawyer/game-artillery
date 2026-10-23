@@ -1,4 +1,4 @@
-import { W, H, G, SPEED, DEG, BODY, MAX_LEVEL, COMBO_FEE, rand, clamp } from './config.js';
+import { W, H, G, SPEED, DEG, BODY, BLAST, MAX_LEVEL, COMBO_FEE, rand, clamp } from './config.js';
 import { WEAPONS, BASE_ORDER, BASIC, weaponStats, upgradeCost, comboId } from './data/weapons.js';
 import { ITEMS, SHIELDS } from './data/items.js';
 
@@ -34,7 +34,7 @@ function simulate(b, t, a, pw, w, target) {
 }
 
 function aim(b, t, id, target) {
-  const w = weaponStats(id, t.pl.upgrades), self = w.r + 40;
+  const w = weaponStats(id, t.pl.upgrades), self = w.r * BLAST.dmgK + 30;
   let best = { s: 1e9, a: t.angle, p: t.power };
   for (let a = 8; a <= 172; a += 2.5) for (let pw = 15; pw <= 100; pw += 2.5) {
     const r = simulate(b, t, a, pw, w, target);

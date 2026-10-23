@@ -221,15 +221,47 @@ button:disabled{opacity:.4;cursor:not-allowed;box-shadow:none}
 .fire-btn{width:76px;min-height:76px;border-radius:50%;flex:none;align-self:center;background:var(--coral);color:#fff;font-size:21px;border-width:3px;box-shadow:0 5px 0 rgba(45,48,71,.3)}
 .hud-bottom.locked .ctrl-row,.hud-bottom.locked .chips.items{opacity:.45;pointer-events:none}
 .hud-bottom.locked .chips#weapons{pointer-events:none}
-/* 넓은 화면: 조작판을 한 줄로 */
-@media (min-width:820px){
-  .hud-bottom{flex-direction:row;align-items:center;max-width:1000px;margin:0 auto;border-left:2px solid var(--ink);border-right:2px solid var(--ink)}
-  .chips-row{flex:1;flex-wrap:wrap;overflow:visible}
-  .chips{flex-wrap:wrap}
-  .ctrl-row{flex:none;gap:14px}
+/* 가로 화면(기본): 위는 한 줄(차례·참가자·버튼), 아래도 한 줄(무기·이동·각도/파워·발사)로 얇게 */
+@media (orientation:landscape){
+  .hud-top{grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:8px}
+  .alive{grid-column:2;grid-row:1;flex-wrap:nowrap;overflow:hidden;align-self:center}
+  .top-actions{grid-column:3;grid-row:1;flex-wrap:nowrap}
+  .turn-card{width:auto;min-width:170px;max-width:230px;padding:4px 10px;gap:2px 8px}
+  .turn-text b{font-size:17px}
+  .hud-bottom{flex-direction:row;align-items:center;gap:10px;padding-top:6px;padding-bottom:max(6px,env(safe-area-inset-bottom,0px));max-width:1100px;margin:0 auto;border-left:2px solid var(--ink);border-right:2px solid var(--ink)}
+  .chips-row{flex:1;min-width:0}
+  .ctrl-row{flex:none;gap:12px}
 }
+/* 가로로 낮은 화면(휴대폰): 버튼을 조금 더 작게 */
+@media (orientation:landscape) and (max-height:520px){
+  .hud-top{padding-top:max(6px,env(safe-area-inset-top,0px))}
+  .turn-card .dot{width:14px;height:14px}
+  .turn-text small{display:none}
+  .pill .pn{max-width:3.2em}
+  .pill .ph{width:20px}
+  .icon-btn,.round-tag{font-size:12px;padding:3px 8px}
+  .pad{gap:3px}
+  .pad button{width:34px;height:28px;font-size:14px;border-radius:10px}
+  .pad input.num{width:3.8em;font-size:15px;padding:1px 3px}
+  .arow .k,.fuel .k{width:24px;font-size:12px}
+  .chips button{padding:3px 8px;font-size:12px}
+  .fire-btn{width:60px;min-height:60px;font-size:18px}
+}
+/* 가로로 넉넉한 화면(PC): 무기 칩은 줄바꿈 */
+@media (orientation:landscape) and (min-height:600px){
+  .chips-row{flex-wrap:wrap;overflow:visible}
+  .chips{flex-wrap:wrap}
+}
+/* 세로로 들고 있을 때 돌려 달라는 안내 */
+.rotate{position:absolute;inset:0;z-index:30;background:rgba(191,232,255,.95);display:grid;place-items:center;padding:24px}
+.rotate-card{background:var(--paper);border:2px solid var(--ink);border-radius:22px;box-shadow:0 5px 0 rgba(45,48,71,.15);padding:24px 20px;display:flex;flex-direction:column;gap:12px;align-items:center;text-align:center;max-width:320px}
+.rotate-card svg{width:86px;height:86px;animation:tilt 2.2s ease-in-out infinite}
+.rotate-card b{font-family:var(--display);font-weight:400;font-size:24px}
+.rotate-card p{margin:0;color:var(--sub);line-height:1.6}
+@keyframes tilt{0%,25%{transform:rotate(0)}55%,100%{transform:rotate(-90deg)}}
+@media (prefers-reduced-motion:reduce){.rotate-card svg{animation:none;transform:rotate(-90deg)}}
 @media (pointer:coarse),(max-width:600px){.keys{display:none}}
-.keys{position:absolute;right:12px;bottom:calc(var(--padB,120px) + 8px);margin:0;font-size:11px;color:var(--ink);background:rgba(255,255,255,.75);border-radius:10px;padding:4px 8px;max-width:420px;pointer-events:none}
+.keys{position:absolute;right:12px;bottom:calc(var(--padB,120px) + 46px);margin:0;font-size:11px;color:var(--ink);background:rgba(255,255,255,.75);border-radius:10px;padding:4px 8px;max-width:420px;pointer-events:none}
 .keys kbd{font-family:inherit;font-size:10px;border:1.5px solid var(--ink);border-radius:4px;padding:0 4px;background:#fff}
 </style>
 </head>
@@ -362,6 +394,14 @@ button:disabled{opacity:.4;cursor:not-allowed;box-shadow:none}
       <button type="button" class="icon-btn menu-btn">나가기</button>
     </div>
     <div class="alive" id="alive" aria-label="참가자 상태"></div>
+  </div>
+  <div class="rotate" id="rotateHint" hidden role="dialog" aria-modal="true" aria-labelledby="rotateTitle">
+    <div class="rotate-card">
+      <svg viewBox="0 0 64 64" aria-hidden="true"><rect x="20" y="6" width="24" height="52" rx="5" fill="#fff" stroke="#2d3047" stroke-width="3.5"/><rect x="24" y="12" width="16" height="36" rx="2" fill="#7fd1ff"/><circle cx="32" cy="53" r="2" fill="#2d3047"/></svg>
+      <b id="rotateTitle">가로로 돌려 주세요</b>
+      <p>전장이 넓어서 휴대폰을 가로로 들면 훨씬 많이 보여요.</p>
+      <button type="button" id="rotateDismiss">세로로 그냥 할게요</button>
+    </div>
   </div>
   <p class="aim-hint" id="aimHint" hidden>내 탱크를 끌어서 조준! 화살표가 길수록 세게 날아가요</p>
   <p class="keys"><kbd>←</kbd><kbd>→</kbd> 각도 <kbd>↑</kbd><kbd>↓</kbd> 파워 <kbd>A</kbd><kbd>D</kbd> 이동 <kbd>Q</kbd><kbd>E</kbd> 무기 <kbd>Space</kbd> 발사 · <kbd>Shift</kbd>와 함께 0.1씩</p>

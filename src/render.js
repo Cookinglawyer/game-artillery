@@ -7,15 +7,14 @@ import { SHIELDS } from './data/items.js';
 const INK = '#2d3047';
 const FONT = '"Jua", "Noto Sans KR", sans-serif';
 
-// 화면(CSS 픽셀) 크기에 맞춘 배율과 보이는 범위.
-// 세로 화면에서도 좌우로 최소 minVW만큼은 보이게 하고, 남는 위쪽은 하늘로 채운다.
-// padB: 아래 조작판 높이. 땅이 조작판에 가리지 않게 그만큼 위로 올린다(가로 화면은 일부만).
+// 화면(CSS 픽셀) 크기에 맞춘 배율과 보이는 범위. 가로 화면 기준.
+// 전장 폭의 2/3(1200) 이상은 항상 보이게 하고, 화면이 넉넉하면 전장 전체(1800)까지 넣는다.
+// 다만 탱크가 너무 작아지지 않게 배율 0.62 아래로는 줄이지 않는다(2/3 규칙이 우선).
+// 아래 조작판은 땅속 일부를 가려도 되므로 화면 높이의 20%까지만 비켜 준다.
 export function viewFor(w, h, padT, padB) {
-  const portrait = h >= w;
-  const minVW = portrait ? 460 : 680;
-  const pb = portrait ? padB : Math.min(padB, h * .18);
-  let s = Math.min((h - pb) / (H + 30), w / minVW);
-  s = Math.max(s, w / W);
+  const fitW = Math.min(w / (W * 2 / 3), Math.max(w / W, .62));
+  const pb = Math.min(padB, h * .2);
+  const s = Math.min(fitW, (h - pb) / (H - 40));
   return { s, vw: w / s, yTop: H - (h - pb) / s, w, h, padT, padB };
 }
 
@@ -345,7 +344,8 @@ function drawSky(c, b, v) {
 }
 
 function drawWind(c, wind, v) {
-  const w = 128, cx = v.w - w / 2 - 10, y = v.padT + 19;
+  // 가로 화면은 오른쪽 아래(조작판 바로 위, 땅속이라 가릴 게 없다), 세로 화면은 오른쪽 위
+  const w = 128, cx = v.w - w / 2 - 10, y = v.w > v.h ? v.h - v.padB - 22 : v.padT + 19;
   c.fillStyle = 'rgba(255,255,255,.88)'; c.strokeStyle = INK; c.lineWidth = 2;
   pill(c, cx - w / 2, y - 14, w, 28); c.fill(); c.stroke();
   c.font = `13px ${FONT}`; c.textBaseline = 'middle';
@@ -361,7 +361,8 @@ function drawWind(c, wind, v) {
 // 지형 윤곽은 지형이 바뀔 때만 다시 샘플링한다.
 const mini = { terrain: null, version: -1, pts: [] };
 function drawMinimap(c, b, v) {
-  const mw = Math.min(200, v.w * .42), mh = 30, M = b.minimap = { x: 10, y: v.padT + 4, w: mw, h: mh };
+  // 가로 화면은 왼쪽 아래(조작판 바로 위), 세로 화면은 왼쪽 위
+  const mw = Math.min(200, v.w * .42), mh = 30, M = b.minimap = { x: 10, y: v.w > v.h ? v.h - v.padB - mh - 8 : v.padT + 4, w: mw, h: mh };
   const T = b.terrain, sx = M.w / W, sy = M.h / H;
   if (mini.terrain !== T || mini.version !== T.version || mini.pts.length !== Math.round(M.w) + 1) {
     mini.terrain = T; mini.version = T.version;
@@ -437,9 +438,9 @@ export function render(c, b, v, dpr) {
       for (let i = 0; i < 8; i++) { const a = i / 8 * TAU + k * 3; star(c, o.x + Math.cos(a) * o.r * .8 * e, o.y + Math.sin(a) * o.r * .8 * e, 3.5); }
       c.globalAlpha = 1; continue;
     }
-    if (o.r >= 90) { // 핵: 화면이 하얗게 번쩍, 버섯구름
+    if (o.nuke) { // 핵: 화면이 하얗게 번쩍, 버섯구름
       if (k < .45) { c.fillStyle = `rgba(255,250,225,${(1 - k / .45) * .6})`; c.fillRect(b.cam.x - 200, v.yTop, v.vw + 400, v.h / s + 200); }
-      const top = o.y - o.r * (.4 + 1.1 * e), cr = o.r * (.35 + .25 * e);
+      const R = o.base * 1.8, top = o.y - R * (.4 + 1.1 * e), cr = R * (.35 + .25 * e);
       c.globalAlpha = Math.min(1, 1.6 - k * 1.6);
       c.fillStyle = '#ffd8a8'; c.fillRect(o.x - cr * .28, top, cr * .56, o.y - top);
       for (const [dx, dy, rr] of [[0, 0, 1], [-.7, .25, .65], [.7, .25, .65], [-.35, -.35, .6], [.35, -.35, .6]]) {
@@ -461,7 +462,7 @@ export function render(c, b, v, dpr) {
       c.beginPath(); c.arc(o.x + Math.cos(a) * d, o.y + Math.sin(a) * d * .8, o.r * .28 * (1 - k * .5), 0, TAU); c.fill(); c.stroke();
     }
     if (o.r >= 22 && k < .85) {
-      const word = o.r >= 90 ? '콰콰쾅!!' : POW[Math.abs(Math.round(o.x + o.y)) % POW.length], fs = Math.min(80, 14 + o.r * .45);
+      const word = o.nuke ? '콰콰쾅!!' : POW[Math.abs(Math.round(o.x + o.y)) % POW.length], fs = Math.min(o.nuke ? 110 : 70, 18 + o.r * .3);
       c.save(); c.translate(o.x, o.y - o.r * .5 - 12 * e); c.rotate(-.12); c.scale(.7 + .5 * e, .7 + .5 * e);
       c.font = `${fs}px ${FONT}`; c.textAlign = 'center'; c.textBaseline = 'middle';
       c.lineWidth = 6; c.strokeStyle = INK; c.strokeText(word, 0, 0);
